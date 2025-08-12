@@ -1,23 +1,18 @@
-// ===== SKSK v0.7.3 Backend.gs (Optimized with Caching) =====
-
-// Konstanta
+// ===== SKSK v0.7.4 Backend.gs (Optimized with Caching) =====
 const TEMPLATE_ID = '1FgXgKYyiw5ZL1Dft4XyaQ2TEfTH22orDUFTXu5n5gTw';
 const USER_PROP_KEY = 'sheetId';
 const SCHEMA_VARIANT_KEY = 'SCHEMA_VARIANT';
 const IDEMP_SCAN_ROWS = 50;
-const CACHE_EXPIRATION_SECONDS = 300; // Cache selama 5 menit untuk laporan
-const MASTER_CACHE_EXPIRATION_SECONDS = 1800; // Cache selama 30 menit untuk data master
+const CACHE_EXPIRATION_SECONDS = 300;
+const MASTER_CACHE_EXPIRATION_SECONDS = 1800;
 
 // ===== Util Cache =====
 function clearCacheByPrefix(prefix) {
   const cache = CacheService.getScriptCache();
-  // Karena Apps Script tidak punya cara untuk daftar keys, kita harus hapus key secara eksplisit
-  // Untuk aplikasi ini, kita akan hapus cache laporan saat ada transaksi baru.
-  const keys = ['report_budget', 'report_goals', 'tx_list'];
+  const keys = ['report_budget', 'report_goals', 'tx_list', 'wallet_balances'];
   cache.removeAll(keys);
-  console.log('Report caches cleared due to new transaction.');
+  console.log('Report caches cleared due to data change.');
 }
-
 
 // ===== Router Web App & Assets PWA =====
 function doGet(e) {
@@ -41,7 +36,6 @@ function getOrCreateDb_() {
   if (!id) throw new Error('Database belum terhubung. Silakan buat DB terlebih dahulu.');
   return SpreadsheetApp.openById(id);
 }
-
 function getSheet_(sheetName) {
   const ss = getOrCreateDb_();
   const sh = ss.getSheetByName(sheetName);
@@ -49,52 +43,45 @@ function getSheet_(sheetName) {
   return sh;
 }
 
-// ===== Header Normalizer & Schema Guard =====
-function normalizeHeaderName_(s) {
-  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function buildHeaderMap_(sheet) {
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] || [];
+// ===== Header Helpers =====
+function normalizeHeaderName_(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+function buildHeaderMap_(sheet){
+  const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0] || [];
   const map = {};
-  headers.forEach((h, i) => map[normalizeHeaderName_(h)] = { index: i, name: h });
+  headers.forEach((h,i)=> map[normalizeHeaderName_(h)] = { index:i, name:h });
   return { headers, map };
 }
-
-function getIndex_(map, canonicalKey, tab) {
+function getIndex_(map, canonicalKey, tab){
   const k = normalizeHeaderName_(canonicalKey);
   if (!(k in map)) throw new Error(`Kolom wajib tidak ditemukan di '${tab}': ${canonicalKey}`);
   return map[k].index;
 }
-
-function assertSchemaV2_(tab, requiredCanonicalKeys) {
+function assertSchemaV2_(tab, requiredCanonicalKeys){
   const sh = getSheet_(tab);
   const ctx = buildHeaderMap_(sh);
-  const missing = (requiredCanonicalKeys || []).filter(k => !(normalizeHeaderName_(k) in ctx.map));
+  const missing = (requiredCanonicalKeys||[]).filter(k => !(normalizeHeaderName_(k) in ctx.map));
   if (missing.length) throw new Error(`Skema '${tab}' kurang kolom: ${missing.join(', ')}`);
   return { sheet: sh, ...ctx };
 }
 
 // ===== Onboarding =====
-function createNewDb() {
+function createNewDb(){
   const copy = DriveApp.getFileById(TEMPLATE_ID).makeCopy(`SKSK DB - ${new Date().toISOString()}`);
   const ss = SpreadsheetApp.open(copy);
   seedDemo_(ss);
   PropertiesService.getUserProperties().setProperty(USER_PROP_KEY, ss.getId());
   detectSchemaVariant_();
-  return { ok: true, id: ss.getId(), url: `https://docs.google.com/spreadsheets/d/${ss.getId()}/edit` };
+  return { ok:true, id:ss.getId(), url:`https://docs.google.com/spreadsheets/d/${ss.getId()}/edit` };
 }
-
-function detectSchemaVariant_() {
+function detectSchemaVariant_(){
   try {
     const sh = getSheet_('Input');
     const { map } = buildHeaderMap_(sh);
     const variant = ('createdat' in map || 'transactiontype' in map) ? 'CANONICAL' : 'LEGACY';
     PropertiesService.getUserProperties().setProperty(SCHEMA_VARIANT_KEY, variant);
-  } catch (e) {}
+  } catch(e){}
 }
-
-function seedDemo_(ss) {
+function seedDemo_(ss){
   const now = new Date();
   let sh = ss.getSheetByName('Wallet Setup');
   if (sh) {
@@ -109,7 +96,7 @@ function seedDemo_(ss) {
       if ('createdat' in map) row[map['createdat'].name] = now;
       if ('updatedat' in map) row[map['updatedat'].name] = now;
       const arr = headers.map(h => h in row ? row[h] : '');
-      sh.getRange(sh.getLastRow()+1, 1, 1, headers.length).setValues([arr]);
+      sh.getRange(sh.getLastRow()+1,1,1,headers.length).setValues([arr]);
     }
   }
   sh = ss.getSheetByName('Category Setup');
@@ -126,35 +113,33 @@ function seedDemo_(ss) {
       if ('createdat' in map) row[map['createdat'].name] = now;
       if ('updatedat' in map) row[map['updatedat'].name] = now;
       const arr = headers.map(h => h in row ? row[h] : '');
-      sh.getRange(sh.getLastRow()+1, 1, 1, headers.length).setValues([arr]);
+      sh.getRange(sh.getLastRow()+1,1,1,headers.length).setValues([arr]);
     };
     if (!has('Transfer-Out')) ensure('Transfer-Out');
     if (!has('Transfer-In')) ensure('Transfer-In');
   }
 }
 
-// ===== Util: append 1 row ke tab sesuai header =====
-function appendRow_(tab, rowObj) {
+// ===== Append Row =====
+function appendRow_(tab, rowObj){
   const { sheet, headers, map } = assertSchemaV2_(tab, []);
   const now = new Date();
   if ('updatedat' in map && !('updatedat' in rowObj)) rowObj[map['updatedat'].name] = now;
   if ('createdat' in map && !('createdat' in rowObj)) rowObj[map['createdat'].name] = now;
   if ('uniqueid'  in map && !('uniqueid'  in rowObj)) rowObj[map['uniqueid'].name]  = Utilities.getUuid();
   const ordered = headers.map(h => (h in rowObj ? rowObj[h] : ''));
-  sheet.getRange(sheet.getLastRow()+1, 1, 1, headers.length).setValues([ordered]);
+  sheet.getRange(sheet.getLastRow()+1,1,1,headers.length).setValues([ordered]);
 
-  // Hapus cache yang relevan setelah data diubah
   const cache = CacheService.getScriptCache();
   if (tab === 'Wallet Setup') cache.remove('master_wallets');
   if (tab === 'Category Setup') cache.remove('master_categories');
   if (tab === 'Account Setup') cache.remove('master_purposes');
-  if (tab === 'Goals Setup') cache.remove('report_goals'); // Goals report bergantung pada ini
-
-  return { ok: true };
+  if (tab === 'Goals Setup') cache.remove('report_goals');
+  return { ok:true };
 }
 
 // ===== Setup Creators =====
-function createWallet(payload) {
+function createWallet(payload){
   const req = ['wallet'];
   const { map } = assertSchemaV2_('Wallet Setup', req);
   const row = {};
@@ -164,8 +149,7 @@ function createWallet(payload) {
   if ('walletowner' in map)  row[map['walletowner'].name]  = payload.walletOwner || 'Owner';
   return appendRow_('Wallet Setup', row);
 }
-
-function createCategory(payload) {
+function createCategory(payload){
   const req = ['subcategory','category','transactiontype'];
   const { map } = assertSchemaV2_('Category Setup', req);
   const row = {};
@@ -175,8 +159,7 @@ function createCategory(payload) {
   if (!row[map['subcategory'].name] || !row[map['category'].name]) throw new Error('Subcategory & Category wajib.');
   return appendRow_('Category Setup', row);
 }
-
-function createAccountPurpose(payload) {
+function createAccountPurpose(payload){
   const { map } = assertSchemaV2_('Account Setup', []);
   const key = ('expensepurpose' in map) ? map['expensepurpose'].name
             : ('expensefor' in map)     ? map['expensefor'].name : '';
@@ -186,8 +169,7 @@ function createAccountPurpose(payload) {
   const row = {}; row[key] = val;
   return appendRow_('Account Setup', row);
 }
-
-function createGoal(payload) {
+function createGoal(payload){
   const { map } = assertSchemaV2_('Goals Setup', []);
   const row = {};
   const nameKey = ('goals' in map) ? map['goals'].name : null;
@@ -200,185 +182,136 @@ function createGoal(payload) {
   return appendRow_('Goals Setup', row);
 }
 
-// ===== Cache Map: Category & Wallet (Internal use) =====
-function getCategoryMap_() {
+// ===== Cached Maps =====
+function getCategoryMap_(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'map_categories';
-  const hit = cache.get(CACHE_KEY);
-  if (hit) return JSON.parse(hit);
-
+  const key = 'map_categories';
+  const hit = cache.get(key); if (hit) return JSON.parse(hit);
   const sh = getSheet_('Category Setup');
   const { map } = buildHeaderMap_(sh);
   const vals = sh.getDataRange().getValues(); vals.shift();
-  const idx = k => getIndex_(map, k, 'Category Setup');
-
+  const idx = k => getIndex_(map,k,'Category Setup');
   const m = {};
-  vals.forEach(r => {
+  vals.forEach(r=>{
     const sub = String(r[idx('subcategory')] || '').trim();
     if (!sub) return;
-    m[sub] = {
-      TransactionType: r[idx('transactiontype')],
-      Category: r[idx('category')],
-      Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : ''
-    };
+    m[sub] = { TransactionType: r[idx('transactiontype')], Category: r[idx('category')],
+               Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : '' };
   });
-  cache.put(CACHE_KEY, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
   return m;
 }
-
-function getWalletMap_() {
+function getWalletMap_(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'map_wallets';
-  const hit = cache.get(CACHE_KEY);
-  if (hit) return JSON.parse(hit);
-
+  const key = 'map_wallets';
+  const hit = cache.get(key); if (hit) return JSON.parse(hit);
   const sh = getSheet_('Wallet Setup');
   const { map } = buildHeaderMap_(sh);
   const vals = sh.getDataRange().getValues(); vals.shift();
-  const idx = k => getIndex_(map, k, 'Wallet Setup');
-
+  const idx = k => getIndex_(map,k,'Wallet Setup');
   const m = {};
-  vals.forEach(r => {
+  vals.forEach(r=>{
     const w = String(r[idx('wallet')] || '').trim();
     if (!w) return;
     m[w] = { WalletOwner: r[idx('walletowner')], WalletType: r[idx('wallettype')] };
   });
-  cache.put(CACHE_KEY, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
   return m;
 }
 
 // ===== Getters (Public, Cached) =====
-function getWallets() {
+function getWallets(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'master_wallets';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) {
-    console.log('Mengambil Wallets dari CACHE');
-    return JSON.parse(cached);
-  }
-
-  console.log('Membaca Wallets dari SHEET');
-  const { sheet, map } = assertSchemaV2_('Wallet Setup', ['wallet', 'wallettype', 'walletowner']);
+  const key = 'master_wallets';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
+  const { sheet, map } = assertSchemaV2_('Wallet Setup', ['wallet','wallettype','walletowner']);
   const vals = sheet.getDataRange().getValues(); vals.shift();
-  const idx = k => getIndex_(map, k, 'Wallet Setup');
-  const result = vals.filter(r => r[idx('wallet')]).map(r => ({
+  const idx = k => getIndex_(map,k,'Wallet Setup');
+  const result = vals.filter(r=>r[idx('wallet')]).map(r=>({
     UniqueID: ('uniqueid' in map) ? r[map['uniqueid'].index] : '',
     Wallet: r[idx('wallet')], WalletType: r[idx('wallettype')], WalletOwner: r[idx('walletowner')],
   }));
-
-  cache.put(CACHE_KEY, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
   return result;
 }
-
-function getCategories() {
+function getCategories(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'master_categories';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) {
-    console.log('Mengambil Categories dari CACHE');
-    return JSON.parse(cached);
-  }
-  
-  console.log('Membaca Categories dari SHEET');
-  const { sheet, map } = assertSchemaV2_('Category Setup', ['subcategory', 'category', 'transactiontype']);
+  const key = 'master_categories';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
+  const { sheet, map } = assertSchemaV2_('Category Setup', ['subcategory','category','transactiontype']);
   const vals = sheet.getDataRange().getValues(); vals.shift();
-  const idx = k => getIndex_(map, k, 'Category Setup');
-  const result = vals.filter(r => String(r[idx('subcategory')] || '').trim()).map(r => ({
+  const idx = k => getIndex_(map,k,'Category Setup');
+  const result = vals.filter(r => String(r[idx('subcategory')]||'').trim()).map(r=>({
     Subcategory: r[idx('subcategory')], Category: r[idx('category')], TransactionType: r[idx('transactiontype')],
     Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : '',
   }));
-  
-  cache.put(CACHE_KEY, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
   return result;
 }
-
-function getTransactions() {
+function getTransactions(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'tx_list';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) {
-    console.log('Mengambil Transactions dari CACHE');
-    return JSON.parse(cached);
-  }
-
-  console.log('Membaca Transactions dari SHEET');
+  const key = 'tx_list';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
   const req = ['uniqueid','date','subcategory','category','wallet','amount','adjustedamount'];
   const { sheet, map } = assertSchemaV2_('Input', req);
   const vals = sheet.getDataRange().getValues(); vals.shift();
-  const idx = k => getIndex_(map, k, 'Input');
-  const result = vals.filter(r => r[idx('uniqueid')]).map(r => ({
+  const idx = k => getIndex_(map,k,'Input');
+  const result = vals.filter(r=>r[idx('uniqueid')]).map(r=>({
     UniqueID: r[idx('uniqueid')], Date: r[idx('date')], Subcategory: r[idx('subcategory')],
     Category: r[idx('category')], Wallet: r[idx('wallet')], Amount: r[idx('amount')],
     AdjustedAmount: r[idx('adjustedamount')],
     Note: ('note' in map) ? r[map['note'].index] : '',
     Description: ('description' in map) ? r[map['description'].index] : '',
   }));
-
-  cache.put(CACHE_KEY, JSON.stringify(result), CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(result), CACHE_EXPIRATION_SECONDS);
   return result;
 }
-
-function getDistinctNotes(limit) {
+function getDistinctNotes(limit){
   const LIM = Math.max(1, Number(limit || 20));
   const { sheet, map } = assertSchemaV2_('Input', ['date']);
   if (!('note' in map)) return [];
-  const last = sheet.getLastRow();
-  if (last < 2) return [];
+  const last = sheet.getLastRow(); if (last < 2) return [];
   const start = Math.max(2, last - 800);
-  const rng = sheet.getRange(start, 1, last - start + 1, sheet.getLastColumn()).getValues();
-  const i = k => getIndex_(map, k, 'Input');
-  const rows = rng.map(r => ({ d: new Date(r[i('date')]), n: String(r[map['note'].index] || '').trim() }))
-              .filter(x => x.n);
-  rows.sort((a, b) => b.d - a.d);
+  const rng = sheet.getRange(start,1,last-start+1,sheet.getLastColumn()).getValues();
+  const i = k => getIndex_(map,k,'Input');
+  const rows = rng.map(r => ({ d:new Date(r[i('date')]), n:String(r[map['note'].index]||'').trim() })).filter(x=>x.n);
+  rows.sort((a,b)=> b.d - a.d);
   const seen = new Set(), out = [];
-  for (const x of rows) { if (!seen.has(x.n)) { seen.add(x.n); out.push(x.n); if (out.length >= LIM) break; } }
+  for (const x of rows){ if (!seen.has(x.n)){ seen.add(x.n); out.push(x.n); if (out.length>=LIM) break; } }
   return out;
 }
-
-function getExpensePurposes(limit) {
+function getExpensePurposes(limit){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'master_purposes';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) {
-    console.log('Mengambil Expense Purposes dari CACHE');
-    return JSON.parse(cached);
-  }
-
-  console.log('Membaca Expense Purposes dari SHEET');
+  const key = 'master_purposes';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
   const LIM = Math.max(1, Number(limit || 100));
   const sh = getSheet_('Account Setup');
   const { headers } = buildHeaderMap_(sh);
   const candidates = ['expensepurpose','expensefor'];
   let colIdx = -1;
-  headers.forEach((h, i) => { const k = normalizeHeaderName_(h); if (colIdx < 0 && candidates.includes(k)) colIdx = i; });
-  if (colIdx < 0) return [];
-  const vals = sh.getRange(2, colIdx + 1, Math.max(0, sh.getLastRow() - 1), 1).getValues();
+  headers.forEach((h,i)=>{ const k = normalizeHeaderName_(h); if (colIdx<0 && candidates.includes(k)) colIdx=i; });
+  if (colIdx<0) return [];
+  const vals = sh.getRange(2,colIdx+1,Math.max(0, sh.getLastRow()-1),1).getValues();
   const seen = new Set(), out = [];
-  for (const [v] of vals) { const s = String(v || '').trim();
-  if (!s || seen.has(s)) continue; seen.add(s); out.push(s); if (out.length >= LIM) break; }
-  
-  cache.put(CACHE_KEY, JSON.stringify(out), MASTER_CACHE_EXPIRATION_SECONDS);
+  for (const [v] of vals){ const s = String(v||'').trim(); if (!s || seen.has(s)) continue; seen.add(s); out.push(s); if (out.length>=LIM) break; }
+  cache.put(key, JSON.stringify(out), MASTER_CACHE_EXPIRATION_SECONDS);
   return out;
 }
 
 // ===== Add Transaction =====
-function addTransaction(row) {
-  try {
+function addTransaction(row){
+  try{
     const { sheet: sh, map } = assertSchemaV2_('Input',
-      ['uniqueid','date','transactiontype','wallet','category','subcategory','amount','adjustedamount']
-    );
+      ['uniqueid','date','transactiontype','wallet','category','subcategory','amount','adjustedamount']);
     const now = new Date();
-
     if (!row.subcategory) throw new Error('Subcategory wajib diisi.');
     if (!row.wallet) throw new Error('Wallet wajib diisi.');
     const amount = Number(row.amount);
     if (!(amount > 0)) throw new Error('Amount harus > 0.');
 
     const catMap = getCategoryMap_();
-    const walMap = getWalletMap_();
     const cinfo = catMap[row.subcategory] || {};
     const subNorm = normalizeHeaderName_(row.subcategory);
-
     const isTransferType = (cinfo.TransactionType === 'Transfer') || (subNorm === 'transferout' || subNorm === 'transferin');
     const isTransferOut  = (subNorm === 'transferout') || (isTransferType && !!row.transferTo);
     const isTransferIn   = (subNorm === 'transferin');
@@ -391,9 +324,9 @@ function addTransaction(row) {
     const txType   = isTransferType ? 'Transfer' : (cinfo.TransactionType || 'Expense');
     const category = isTransferType ? 'Transfer' : (cinfo.Category || '');
     const adjusted = isTransferOut ? -Math.abs(amount)
-                   : isTransferIn  ? Math.abs(amount)
+                   : isTransferIn  ?  Math.abs(amount)
                    : (txType === 'Expense') ? -Math.abs(amount) : Math.abs(amount);
-    
+
     const baseId = Utilities.getUuid();
     const idOut  = baseId + '_out';
     const idIn   = baseId + '_in';
@@ -419,49 +352,38 @@ function addTransaction(row) {
 
     if (isTransferOut && row.transferTo) {
       const twin = { ...rowData };
-      twin[map['uniqueid'].name]       = idIn;
-      twin[map['wallet'].name]         = row.transferTo;
-      twin[map['subcategory'].name]   = 'Transfer-In';
-      twin[map['adjustedamount'].name] = Math.abs(amount);
+      twin[map['uniqueid'].name]        = idIn;
+      twin[map['wallet'].name]          = row.transferTo;
+      twin[map['subcategory'].name]     = 'Transfer-In';
+      twin[map['adjustedamount'].name]  = Math.abs(amount);
       if ('transferto' in map) twin[map['transferto'].name] = row.wallet;
       rowsToWrite.push(headers.map(h => h in twin ? twin[h] : ''));
     }
 
     if (rowsToWrite.length > 0) {
-      sh.getRange(sh.getLastRow() + 1, 1, rowsToWrite.length, headers.length).setValues(rowsToWrite);
+      sh.getRange(sh.getLastRow()+1,1,rowsToWrite.length,headers.length).setValues(rowsToWrite);
     }
-    
-    // Hapus semua cache laporan setelah transaksi baru berhasil
     clearCacheByPrefix('report_');
-
-    return { success: true, id: baseId };
-  } catch (err) {
-    throw err;
-  }
+    return { success:true, id:baseId };
+  } catch(err){ throw err; }
 }
 
-// ===== Reports (Cached) =====
-function getBudgetSummary() {
+// ===== Reports =====
+function getBudgetSummary(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'report_budget';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) {
-    console.log('Mengambil Budget Summary dari CACHE');
-    return JSON.parse(cached);
-  }
+  const key = 'report_budget';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
 
-  console.log('Menjalankan kalkulasi Budget Summary dari SHEET');
   const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
   const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount']);
   const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-  const c = k => getIndex_(cat.map, k, 'Category Setup');
-  const i = k => getIndex_(inp.map, k, 'Input');
-  
+  const c = k => getIndex_(cat.map,k,'Category Setup');
+  const i = k => getIndex_(inp.map,k,'Input');
+
   const budgetMap = {};
-  cVals.forEach(r => {
-    const sub = String(r[c('subcategory')] || '').trim();
-    if (!sub) return;
+  cVals.forEach(r=>{
+    const sub = String(r[c('subcategory')]||'').trim(); if (!sub) return;
     const catName = r[c('category')] || '';
     const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
     const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
@@ -469,94 +391,97 @@ function getBudgetSummary() {
   });
 
   const spentBySub = {};
-  iVals.forEach(r => {
-    const sub = String(r[i('subcategory')] || '').trim();
-    if (!sub) return;
+  iVals.forEach(r=>{
+    const sub = String(r[i('subcategory')]||'').trim(); if (!sub) return;
     const adj = Number(r[i('adjustedamount')] || 0);
     if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
-    if (!budgetMap[sub]) {
-      budgetMap[sub] = { category: r[i('category')] || '', budget: 0 };
-    }
+    if (!budgetMap[sub]) budgetMap[sub] = { category: r[i('category')] || '', budget: 0 };
   });
 
   const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
-  const rows = subs.map(sub => {
-    const info = budgetMap[sub] || { category: '', budget: 0 };
+  const rows = subs.map(sub=>{
+    const info = budgetMap[sub] || { category:'', budget:0 };
     const spent = Number(spentBySub[sub] || 0);
-    return {
-      category: info.category || '', subcategory: sub,
-      spent, budget: Number(info.budget || 0),
-      remaining: Number(info.budget || 0) + spent
-    };
+    return { category:info.category||'', subcategory:sub, spent, budget:Number(info.budget||0), remaining:Number(info.budget||0) + spent };
   });
-  rows.sort((a,b) => (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
+  rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
 
-  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
 }
 
-function getGoalsWithProgress() {
+// NEW: Wallet Balances (untuk Dashboard)
+function getWalletBalances(){
   const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'report_goals';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) {
-    console.log('Mengambil Goals Progress dari CACHE');
-    return JSON.parse(cached);
-  }
+  const key = 'wallet_balances';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
 
-  console.log('Menjalankan kalkulasi Goals Progress dari SHEET');
   const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-  const i = k => getIndex_(inp.map, k, 'Input');
+  const i = k => getIndex_(inp.map,k,'Input');
+
+  const walMap = getWalletMap_(); // ambil tipe wallet
+  const bal = {};
+  iVals.forEach(r=>{
+    const w = String(r[i('wallet')]||'').trim(); if (!w) return;
+    const a = Number(r[i('adjustedamount')] || 0);
+    bal[w] = (bal[w] || 0) + a;
+  });
+
+  const rows = Object.keys(walMap).map(w => ({
+    wallet: w,
+    type: walMap[w].WalletType || '',
+    balance: Number(bal[w] || 0)
+  }));
+  cache.put(key, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
+  return rows;
+}
+
+function getGoalsWithProgress(){
+  const cache = CacheService.getScriptCache();
+  const key = 'report_goals';
+  const cached = cache.get(key); if (cached) return JSON.parse(cached);
+
+  const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
+  const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
+  const i = k => getIndex_(inp.map,k,'Input');
 
   const balanceByWallet = {};
-  iVals.forEach(r => {
-    const w = r[i('wallet')];
-    if (!w) return;
+  iVals.forEach(r=>{
+    const w = r[i('wallet')]; if (!w) return;
     const a = Number(r[i('adjustedamount')] || 0);
     balanceByWallet[w] = (balanceByWallet[w] || 0) + a;
   });
 
   const goals = assertSchemaV2_('Goals Setup', ['goals']);
   const gVals = goals.sheet.getDataRange().getValues(); gVals.shift();
-  const g = k => getIndex_(goals.map, k, 'Goals Setup');
-
+  const g = k => getIndex_(goals.map,k,'Goals Setup');
   const hasNeeded = ('nominalneeded' in goals.map);
   const hasOwner  = ('goalowner' in goals.map);
 
   const rows = [];
-  gVals.forEach(r => {
-    const goalName = String(r[g('goals')] || '').trim();
-    if (!goalName) return;
-
+  gVals.forEach(r=>{
+    const goalName = String(r[g('goals')]||'').trim(); if (!goalName) return;
     const needed   = hasNeeded ? Number(r[g('nominalneeded')] || 0) : 0;
     const progress = Number(balanceByWallet[goalName] || 0);
     const completion = needed > 0 ? (progress / needed) : 0;
-
-    rows.push({
-      goal: goalName, owner: hasOwner ? r[g('goalowner')] : '',
-      needed, progress, completion
-    });
+    rows.push({ goal:goalName, owner: hasOwner ? r[g('goalowner')] : '', needed, progress, completion });
   });
 
-  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
+  cache.put(key, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
 }
 
-// +++++ FUNGSI BARU YANG DITAMBAHKAN +++++
-/**
- * Mengambil semua data yang diperlukan untuk inisialisasi aplikasi dalam satu panggilan.
- */
-function getInitialData() {
-  // Panggilan ini akan sangat cepat karena semua fungsi di dalamnya sudah di-cache
-  const data = {
+// ===== Initial Aggregation =====
+function getInitialData(){
+  return {
     wallets: getWallets(),
     categories: getCategories(),
     transactions: getTransactions(),
     notes: getDistinctNotes(25),
     purposes: getExpensePurposes(200),
     budgetSummary: getBudgetSummary(),
-    goalsProgress: getGoalsWithProgress()
+    goalsProgress: getGoalsWithProgress(),
+    walletBalances: getWalletBalances()
   };
-  return data;
 }
