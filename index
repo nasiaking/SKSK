@@ -1,141 +1,157 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SKSK</title>
-  <link rel="manifest" href="?asset=manifest&v=20250812" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SatukasSatukas</title>
   <script src="https://cdn.tailwindcss.com"></script>
-</head>
+  <link rel="manifest" href="?asset=manifest&v=20250812">
+  </head>
 <body class="bg-slate-100 text-slate-900">
 
-  <!-- Header -->
-  <header class="sticky top-0 z-10 bg-gradient-to-r from-emerald-500 to-sky-500 text-white shadow">
+  <header class="sticky top-0 z-10 bg-gradient-to-r from-emerald-500 to-sky-500 text-white shadow-md">
     <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-xl font-semibold tracking-wide">SKSK</h1>
-      <div class="flex gap-2">
+      <h1 class="text-xl font-semibold tracking-wide">SatukasSatukas</h1>
+      <nav class="flex items-center gap-2">
         <button id="btnHome" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Main</button>
         <button id="btnSetupOpen" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Setup</button>
         <button id="btnInstall" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition hidden">Install</button>
-      </div>
+      </nav>
     </div>
   </header>
+  <main class="max-w-2xl mx-auto px-4 py-6">
 
-  <!-- Setup View -->
-  <section id="setupView" class="max-w-2xl mx-auto px-4 py-6 hidden">
-    <div class="bg-white border rounded-lg shadow p-6 space-y-4">
-      <h2 class="text-lg font-semibold">Setup</h2>
+    <section id="setupView" class="hidden">
+      <div class="bg-white border rounded-lg shadow p-6 space-y-6">
+        <h2 class="text-xl font-semibold border-b pb-2">Setup Data</h2>
 
-      <div>
-        <h3 class="font-medium mb-2">Database</h3>
-        <button id="btnCreateNew" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700">
-          Buat Database Saya
-        </button>
-        <p id="setupMsg" class="text-sm text-slate-500 mt-2 min-h-[1.25rem]"></p>
-      </div>
-
-      <div class="mt-6">
-        <h3 class="font-medium mb-2">Master Setup</h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <button id="btnOpenWallet"   class="px-3 py-2 rounded bg-slate-700 text-white hover:bg-slate-800">Wallet Setup</button>
-          <button id="btnOpenCategory" class="px-3 py-2 rounded bg-slate-700 text-white hover:bg-slate-800">Category Setup</button>
-          <button id="btnOpenAccount"  class="px-3 py-2 rounded bg-slate-700 text-white hover:bg-slate-800">Account Setup</button>
-          <button id="btnOpenGoals"    class="px-3 py-2 rounded bg-slate-700 text-white hover:bg-slate-800">Goals Setup</button>
+        <div>
+          <h3 class="font-medium mb-2">Database Creation</h3>
+          <button id="btnCreateNew" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition">
+            Buat Database Baru
+          </button>
+          <p id="setupMsg" class="text-sm text-slate-500 mt-2 min-h-[1.25rem]"></p>
         </div>
-        <p class="text-xs text-slate-500 mt-2">Form akan muncul di bawah ini.</p>
 
-        <!-- WADAH FORM DINAMIS -->
-        <div id="masterFormWrap" class="mt-4 space-y-3"></div>
-</div>
+        <div>
+          <h3 class="font-medium mb-2">Master Data</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <button id="btnOpenWallet"   class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Wallet</button>
+            <button id="btnOpenCategory" class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Category</button>
+            <button id="btnOpenAccount"  class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Account</button>
+            <button id="btnOpenGoals"    class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Goals</button>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">Form untuk menambah data akan muncul di bawah ini.</p>
 
-  </section>
+          <div id="masterFormWrap" class="mt-4 space-y-4"></div>
+        </div>
+      </div>
+    </section>
+    <section id="appView" class="space-y-6 hidden">
+      <section class="bg-white border rounded-lg shadow p-4">
+        <h2 class="text-lg font-semibold mb-3">Tambah Transaksi Baru</h2>
+        <form id="txForm" class="grid grid-cols-2 gap-4">
+          <div class="col-span-1">
+            <label for="date" class="block text-sm font-medium text-slate-700">Tanggal</label>
+            <input id="date" type="date" class="mt-1 w-full border rounded p-2" required>
+          </div>
+          <div class="col-span-1">
+            <label for="subcategory" class="block text-sm font-medium text-slate-700">Subcategory</label>
+            <select id="subcategory" class="mt-1 w-full border rounded p-2" required></select>
+          </div>
+          <div class="col-span-1">
+            <label for="wallet" class="block text-sm font-medium text-slate-700">Wallet</label>
+            <select id="wallet" class="mt-1 w-full border rounded p-2" required></select>
+          </div>
+          <div class="col-span-1">
+            <label for="amount" class="block text-sm font-medium text-slate-700">Amount</label>
+            <input id="amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border rounded p-2" required>
+          </div>
 
-  <!-- App View -->
-  <main id="appView" class="max-w-2xl mx-auto px-4 py-6 space-y-6 hidden">
-    <section class="bg-white border rounded-lg shadow p-4">
-      <h2 class="text-lg font-semibold mb-3">Tambah Transaksi</h2>
-      <form id="txForm" class="grid grid-cols-2 gap-4">
-        <label class="col-span-1">Tanggal
-          <input id="date" type="date" class="mt-1 w-full border rounded p-2" required />
-        </label>
-        <label class="col-span-1">Subcategory
-          <select id="subcategory" class="mt-1 w-full border rounded p-2" required></select>
-        </label>
-        <label class="col-span-1">Wallet
-          <select id="wallet" class="mt-1 w-full border rounded p-2" required></select>
-        </label>
-        <label class="col-span-1">Amount
-          <input id="amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border rounded p-2" required />
-        </label>
-
-        <!-- Transfer To -->
-        <div id="transferWrap" class="col-span-2 hidden">
-          <label class="block">Transfer Ke
+          <div id="transferWrap" class="col-span-2 hidden">
+            <label for="transferTo" class="block text-sm font-medium text-slate-700">Transfer Ke</label>
             <select id="transferTo" class="mt-1 w-full border rounded p-2"></select>
-          </label>
+          </div>
+
+          <div class="col-span-2">
+            <label for="expensePurpose" class="block text-sm font-medium text-slate-700">Expense For</label>
+            <select id="expensePurpose" class="mt-1 w-full border rounded p-2"></select>
+          </div>
+          <div class="col-span-2">
+            <label for="note" class="block text-sm font-medium text-slate-700">Note</label>
+            <input id="note" type="text" list="noteOptions" class="mt-1 w-full border rounded p-2">
+            <datalist id="noteOptions"></datalist>
+          </div>
+          <div class="col-span-2">
+            <label for="description" class="block text-sm font-medium text-slate-700">Description (Opsional)</label>
+            <input id="description" type="text" class="mt-1 w-full border rounded p-2">
+          </div>
+
+          <div class="col-span-2 flex justify-end">
+            <button id="btnSubmit" type="submit" class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50">Simpan</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="bg-white border rounded-lg shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">Riwayat</h2>
+          <input id="search" placeholder="Cari transaksi..." class="border rounded p-2 text-sm">
         </div>
+        <div id="txList" class="space-y-2 max-h-96 overflow-y-auto"></div>
+      </section>
 
-        <!-- Expense For: selalu dropdown -->
-        <label class="col-span-2">Expense For
-          <select id="expensePurpose" class="mt-1 w-full border rounded p-2"></select>
-        </label>
-
-        <label class="col-span-2">Note
-          <input id="note" type="text" list="noteOptions" class="mt-1 w-full border rounded p-2" />
-          <datalist id="noteOptions"></datalist>
-        </label>
-
-        <label class="col-span-2">Description (opsional)
-          <input id="description" type="text" class="mt-1 w-full border rounded p-2" />
-        </label>
-
-        <div class="col-span-2 flex gap-2 justify-end">
-          <button id="btnSubmit" type="submit" class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50">Simpan</button>
+      <section class="bg-white border rounded-lg shadow p-4">
+        <h2 class="text-lg font-semibold mb-3">Laporan</h2>
+        <div class="grid grid-cols-1 gap-6">
+          <div>
+            <h3 class="font-medium mb-2">Budget Summary</h3>
+            <table class="w-full text-sm border">
+              <thead class="bg-slate-50">
+                <tr>
+                  <th class="p-2 text-left font-semibold w-[30%]">Category</th>
+                  <th class="p-2 text-left font-semibold w-[30%]">Subcategory</th>
+                  <th class="p-2 text-right font-semibold w-[20%]">Spent</th>
+                  <th class="p-2 text-right font-semibold w-[20%]">Remaining</th>
+                </tr>
+              </thead>
+              <tbody id="budgetTbody"></tbody>
+            </table>
+          </div>
+          <div>
+            <h3 class="font-medium mb-2">Goals Progress</h3>
+            <div id="goalsWrap" class="space-y-3"></div>
+          </div>
         </div>
-      </form>
+      </section>
     </section>
-
-    <!-- Riwayat -->
-    <section class="bg-white border rounded-lg shadow p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Riwayat</h2>
-        <input id="search" placeholder="Cari..." class="border rounded p-2 text-sm" />
-      </div>
-      <div id="txList" class="space-y-2 max-h-96 overflow-y-auto"></div>
-    </section>
-
-    <!-- Laporan -->
-    <section class="bg-white border rounded-lg shadow p-4">
-      <h2 class="text-lg font-semibold mb-3">Laporan</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <h3 class="font-medium mb-2">Budget Summary</h3>
-          <table class="w-full text-sm border">
-            <thead class="bg-slate-50">
-              <tr><th class="p-2 text-left">Category</th><th class="p-2 text-right">Spent</th><th class="p-2 text-right">Remaining</th></tr>
-            </thead>
-            <tbody id="budgetTbody"></tbody>
-          </table>
-        </div>
-        <div>
-          <h3 class="font-medium mb-2">Goals Progress</h3>
-          <div id="goalsWrap" class="space-y-3"></div>
-        </div>
-      </div>
-    </section>
-  </main>
-
+    </main>
   <?!= HtmlService.createHtmlOutputFromFile('app').getContent(); ?>
 
-  <!-- SW & Install -->
   <script>
+    // PWA SW register
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('?asset=sw&v=20250812'));
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('?asset=sw&v=20250812').catch(err => console.error('Service Worker registration failed:', err));
+      });
     }
+
     let deferredPrompt;
     const btnInstall = document.getElementById('btnInstall');
-    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; btnInstall.classList.remove('hidden'); });
-    btnInstall?.addEventListener('click', async () => { if (!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; btnInstall.classList.add('hidden'); });
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      if (btnInstall) btnInstall.classList.remove('hidden');
+    });
+
+    btnInstall?.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      btnInstall.classList.add('hidden');
+    });
   </script>
-</body>
+  </body>
 </html>
