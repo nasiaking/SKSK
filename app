@@ -2,19 +2,16 @@
 (() => {
   // ======== STATE ========
   let wallets = [];
-  let categories = [];          // dari Category Setup
-  let purposes = [];            // Expense Purposes (Account Setup)
+  let categories = [];
+  let purposes = [];
   let txCache = [];
 
   // ======== ELEMENTS ========
   const setupView = document.getElementById('setupView');
   const appView   = document.getElementById('appView');
   const setupMsg  = document.getElementById('setupMsg');
-
-  const btnSetupOpen = document.getElementById('btnSetupOpen'); // "Setup"
-  const btnHome      = document.getElementById('btnHome');      // "Main"
-
-  // Form transaksi
+  const btnSetupOpen = document.getElementById('btnSetupOpen');
+  const btnHome      = document.getElementById('btnHome');
   const form    = document.getElementById('txForm');
   const dateInp = document.getElementById('date');
   const subSel  = document.getElementById('subcategory');
@@ -22,29 +19,24 @@
   const amtInp  = document.getElementById('amount');
   const transferWrap = document.getElementById('transferWrap');
   const transferSel  = document.getElementById('transferTo');
-  const expSel  = document.getElementById('expensePurpose'); // dropdown (Expense For)
+  const expSel  = document.getElementById('expensePurpose');
   const noteInp = document.getElementById('note');
   const noteDL  = document.getElementById('noteOptions');
   const descInp = document.getElementById('description');
-
-  // Riwayat & Laporan
   const txList = document.getElementById('txList');
   const search = document.getElementById('search');
   const budgetTbody = document.getElementById('budgetTbody');
   const goalsWrap   = document.getElementById('goalsWrap');
-
-  // Master Setup
   const masterFormWrap = document.getElementById('masterFormWrap');
   const btnOpenAccount  = document.getElementById('btnOpenAccount');
   const btnOpenWallet   = document.getElementById('btnOpenWallet');
   const btnOpenCategory = document.getElementById('btnOpenCategory');
   const btnOpenGoals    = document.getElementById('btnOpenGoals');
-
+  
   // ======== VIEW HELPERS ========
   function showSetup(){
     setupView.classList.remove('hidden');
     appView.classList.add('hidden');
-    // bersihkan area master & reset highlight tombol
     masterFormWrap.innerHTML = '';
     [btnOpenAccount, btnOpenWallet, btnOpenCategory, btnOpenGoals]
       .forEach(b => b.classList.remove('bg-slate-800','text-white'));
@@ -67,39 +59,42 @@
 
   // ======== BOOTSTRAP ========
   function bootstrap() {
-    Promise.all([
-      gs('getWallets'),
-      gs('getCategories'),
-      gs('getDistinctNotes', 25),
-      gs('getExpensePurposes', 200),
-    ]).then(([w, c, notes, purp]) => {
-      wallets    = w || [];
-      categories = c || [];
-      purposes   = purp || [];
+    // Panggil satu fungsi untuk mengambil semua data
+    gs('getInitialData').then(data => {
+      // Isi semua state dari satu objek data
+      wallets    = data.wallets || [];
+      categories = data.categories || [];
+      purposes   = data.purposes || [];
+      txCache    = data.transactions || [];
 
-      // Subcategory: sembunyikan Transfer-In dari opsi manual
+      // Render semua bagian UI
       const subOptions = (categories || []).map(x => x.Subcategory).filter(s => s && s !== 'Transfer-In');
       fillSelect(subSel, subOptions);
 
-      // Wallet & Transfer To
       fillSelect(walSel, (wallets||[]).map(x => x.Wallet));
       fillSelect(transferSel, (wallets||[]).map(x => x.Wallet));
 
-      // Notes datalist
-      fillDatalist(noteDL, notes || []);
-
-      // Expense For (selalu dropdown dari Account Setup)
+      fillDatalist(noteDL, data.notes || []);
       fillSelect(expSel, purposes);
+      
+      renderTransactions();
+      renderBudgetSummary(data.budgetSummary || []);
+      renderGoalsProgress(data.goalsProgress || []);
 
       refreshTransferUI();
-      loadTransactions();
-      loadReports();
-
-      // default date = hari ini (local)
+      
       dateInp.valueAsNumber = Date.now() - (new Date()).getTimezoneOffset()*60000;
-
       showApp();
     }).catch(err => { console.log('Bootstrap gagal:', err); showSetup(); });
+  }
+
+  function refreshAllData() {
+    gs('getInitialData').then(data => {
+        txCache = data.transactions || [];
+        renderTransactions();
+        renderBudgetSummary(data.budgetSummary || []);
+        renderGoalsProgress(data.goalsProgress || []);
+    });
   }
 
   // ======== UTIL KONEKSI GAS & DOM ========
@@ -141,7 +136,7 @@
       wallet: walSel.value,
       amount: Number(amtInp.value || 0),
       transferTo: isTO ? transferSel.value : '',
-      expensePurpose: expSel.value || '', // dari dropdown
+      expensePurpose: expSel.value || '',
       note: (noteInp.value || '').trim(),
       description: (descInp.value || '').trim(),
     };
@@ -151,8 +146,7 @@
     disableForm(true);
     google.script.run.withSuccessHandler(() => {
       amtInp.value = ''; noteInp.value = ''; descInp.value = '';
-      gs('getDistinctNotes', 25).then(list => fillDatalist(noteDL, list || []));
-      loadTransactions(); loadReports();
+      refreshAllData(); // Ambil semua data terbaru
       disableForm(false);
     }).withFailureHandler(err => { alert((err && err.message) || 'Gagal menyimpan.'); disableForm(false); })
       .addTransaction(payload);
@@ -160,13 +154,7 @@
 
   function disableForm(dis){ form.querySelectorAll('input,select,button').forEach(el => el.disabled = dis); }
 
-  // ======== RIWAYAT ========
-  function loadTransactions() {
-    gs('getTransactions')
-      .then(list => { txCache = Array.isArray(list) ? list : []; renderTransactions(); })
-      .catch(err => { console.log('Load tx failed:', err); txCache = []; renderTransactions(); });
-  }
-
+  // ======== RIWAYAT & LAPORAN ========
   function renderTransactions() {
     const q = (search.value || '').toLowerCase();
     txList.innerHTML = '';
@@ -200,29 +188,21 @@
   }
   search.addEventListener('input', renderTransactions);
 
-  function safeDate(v){ try{ const d = new Date(v); return isFinite(d) ? d.toLocaleDateString() : ''; }catch(_){ return ''; } }
-  function formatMoney(n){ return (new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0})).format(n||0); }
-  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function renderBudgetSummary(list) {
+    budgetTbody.innerHTML = '';
+    (list || []).forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="p-2">${escapeHtml(r.category || '')}</td>
+        <td class="p-2">${escapeHtml(r.subcategory || '')}</td>
+        <td class="p-2 text-right">${formatMoney(r.spent || 0)}</td>
+        <td class="p-2 text-right">${formatMoney(r.remaining || 0)}</td>
+      `;
+      budgetTbody.appendChild(tr);
+    });
+  }
 
-  // ======== LAPORAN ========
-  function loadReports() {
-    // Budget Summary: Category + Subcategory
-    gs('getBudgetSummary').then(list => {
-      budgetTbody.innerHTML = '';
-      (list || []).forEach(r => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="p-2">${escapeHtml(r.category || '')}</td>
-          <td class="p-2">${escapeHtml(r.subcategory || '')}</td>
-          <td class="p-2 text-right">${formatMoney(r.spent || 0)}</td>
-          <td class="p-2 text-right">${formatMoney(r.remaining || 0)}</td>
-        `;
-        budgetTbody.appendChild(tr);
-      });
-    }).catch(() => { budgetTbody.innerHTML = ''; });
-
-    // Goals Progress
-    gs('getGoalsWithProgress').then(list => {
+  function renderGoalsProgress(list) {
       goalsWrap.innerHTML = '';
       (list || []).forEach(g => {
         const pct = Math.max(0, Math.min(1, Number(g.completion || 0)));
@@ -237,34 +217,30 @@
           </div>`;
         goalsWrap.appendChild(item);
       });
-    }).catch(() => { goalsWrap.innerHTML = ''; });
   }
+  
+  // ======== UTIL & MASTER DATA FORM ========
+  function safeDate(v){ try{ const d = new Date(v); return isFinite(d) ? d.toLocaleDateString() : ''; }catch(_){ return ''; } }
+  function formatMoney(n){ return (new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0})).format(n||0); }
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
   // ======== MASTER VIEW SWITCHER (TAB) ========
   function renderIntoMaster(html) {
-    masterFormWrap.innerHTML = '';                         // kosongkan area form
+    masterFormWrap.innerHTML = '';
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html.trim();
-    masterFormWrap.appendChild(wrapper.firstElementChild); // taruh satu form saja
+    masterFormWrap.appendChild(wrapper.firstElementChild);
   }
-// ======== MASTER TAB STATE ========
-const MASTER_BTNS = [btnOpenAccount, btnOpenWallet, btnOpenCategory, btnOpenGoals];
-
-function setActiveMaster(btn){
-  MASTER_BTNS.forEach(b => {
-    b.classList.remove(
-      'font-semibold','underline','decoration-white','decoration-[3px]','underline-offset-8'
-    );
-    b.classList.add('text-white'); // pastikan semua standby font putih
-    b.setAttribute('aria-selected','false');
-  });
-
-  btn.classList.add(
-    'font-semibold','underline','decoration-white','decoration-[3px]','underline-offset-8','text-white'
-  );
-  btn.setAttribute('aria-selected','true');
-}
-
+  const MASTER_BTNS = [btnOpenAccount, btnOpenWallet, btnOpenCategory, btnOpenGoals];
+  function setActiveMaster(btn){
+    MASTER_BTNS.forEach(b => {
+      b.classList.remove('font-semibold','underline','decoration-white','decoration-[3px]','underline-offset-8');
+      b.classList.add('text-white');
+      b.setAttribute('aria-selected','false');
+    });
+    btn.classList.add('font-semibold','underline','decoration-white','decoration-[3px]','underline-offset-8','text-white');
+    btn.setAttribute('aria-selected','true');
+  }
 
   function openMaster(section){
     switch(section){
@@ -279,8 +255,8 @@ function setActiveMaster(btn){
   btnOpenWallet  .addEventListener('click', () => openMaster('wallet'));
   btnOpenCategory.addEventListener('click', () => openMaster('category'));
   btnOpenGoals   .addEventListener('click', () => openMaster('goals'));
-
-  // ——— Account (Expense Purpose) — tambah baru
+  
+  // ——— Account (Expense Purpose) —
   function renderAccountForm() {
     renderIntoMaster(`
       <div id="accountForm" class="border rounded p-3">
@@ -303,11 +279,9 @@ function setActiveMaster(btn){
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
         msg.textContent = 'Tersimpan.'; f.reset();
-        // refresh master data
         gs('getExpensePurposes', 200).then(list => {
           purposes = list || [];
-          fillSelect(expSel, purposes); // form transaksi
-          // refresh owner dropdown di Wallet & Goals form bila aktif
+          fillSelect(expSel, purposes);
           const walletOwnerSel = document.getElementById('walletOwnerSel');
           if (walletOwnerSel) fillSelect(walletOwnerSel, purposes);
           const goalOwnerSel = document.getElementById('goalOwnerSel');
@@ -318,7 +292,7 @@ function setActiveMaster(btn){
     };
   }
 
-  // ——— Wallet — tambah baru (Owner dari Expense Purpose)
+  // ——— Wallet —
   function renderWalletForm() {
     renderIntoMaster(`
       <div id="walletForm" class="border rounded p-3">
@@ -327,16 +301,9 @@ function setActiveMaster(btn){
           <label class="col-span-1">Wallet
             <input name="wallet" class="mt-1 w-full border rounded p-2" required />
           </label>
-          
           <label class="col-span-1">Wallet Type
-            <select id="walletTypeSel" name="walletType" class="mt-1 w-full border rounded p-2">
-              <option>Cash &amp; Bank</option>
-              <option>Liabilities</option>
-              <option>Saving</option>
-              <option>Other Asset</option>
-            </select>
+            <input name="walletType" class="mt-1 w-full border rounded p-2" placeholder="Personal/Bisnis" />
           </label>
-
           <label class="col-span-1">Wallet Owner
             <select id="walletOwnerSel" name="walletOwner" class="mt-1 w-full border rounded p-2"></select>
           </label>
@@ -347,10 +314,8 @@ function setActiveMaster(btn){
         <p id="msgWallet" class="text-sm text-slate-600 mt-2"></p>
       </div>
     `);
-    // isi owner dari Expense Purpose
     const ownerSel = document.getElementById('walletOwnerSel');
     fillSelect(ownerSel, purposes);
-
     const f = document.getElementById('fWallet'), msg = document.getElementById('msgWallet');
     f.onsubmit = (e) => {
       e.preventDefault();
@@ -358,7 +323,6 @@ function setActiveMaster(btn){
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
         msg.textContent = 'Tersimpan.'; f.reset();
-        // refresh dropdown wallet & transferTo di form transaksi
         gs('getWallets').then(w => {
           wallets = w || [];
           fillSelect(walSel, wallets.map(x=>x.Wallet));
@@ -369,7 +333,7 @@ function setActiveMaster(btn){
     };
   }
 
-  // ——— Category — pilih kategori yang sudah ada atau Tambah Baru…
+  // ——— Category —
   function renderCategoryForm() {
     renderIntoMaster(`
       <div id="categoryForm" class="border rounded p-3">
@@ -386,9 +350,7 @@ function setActiveMaster(btn){
           </label>
           <label class="col-span-1">Transaction Type
             <select name="transactionType" class="mt-1 w-full border rounded p-2">
-              <option>Expense</option>
-              <option>Income</option>
-              <option>Transfer</option>
+              <option>Expense</option><option>Income</option><option>Transfer</option>
             </select>
           </label>
           <div class="col-span-3 flex justify-end">
@@ -398,20 +360,16 @@ function setActiveMaster(btn){
         <p id="msgCategory" class="text-sm text-slate-600 mt-2"></p>
       </div>
     `);
-
     const catSel = document.getElementById('categorySel');
     const newCatWrap = document.getElementById('newCatWrap');
     const newCatInp  = document.getElementById('newCategory');
-
-    // isi kategori unik + "Tambah Baru…"
     const uniqueCats = Array.from(new Set((categories||[]).map(x => x.Category).filter(Boolean))).sort();
     catSel.innerHTML = '';
-    [...uniqueCats, '— Tambah Baru… —'].forEach(v => {
+    const NEW_VAL = '— Tambah Baru… —';
+    [...uniqueCats, NEW_VAL].forEach(v => {
       const o = document.createElement('option'); o.value = v; o.textContent = v; catSel.appendChild(o);
     });
-    const NEW_VAL = '— Tambah Baru… —';
     if (uniqueCats.length === 0) catSel.value = NEW_VAL;
-
     catSel.addEventListener('change', () => {
       const isNew = (catSel.value === NEW_VAL);
       newCatWrap.classList.toggle('hidden', !isNew);
@@ -432,30 +390,27 @@ function setActiveMaster(btn){
         transactionType: fd.get('transactionType') || 'Expense',
       };
       if (!payload.subcategory) { msg.textContent = 'Subcategory wajib diisi.'; return; }
-
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
         msg.textContent = 'Tersimpan.'; f.reset(); newCatInp.value = '';
-        // refresh master categories + subcategory dropdown transaksi
         gs('getCategories').then(c => {
           categories = c || [];
           const subs = categories.map(x=>x.Subcategory).filter(s => s && s !== 'Transfer-In');
           fillSelect(subSel, subs);
+          const latestUnique = Array.from(new Set((categories||[]).map(x => x.Category).filter(Boolean))).sort();
+          catSel.innerHTML = '';
+          [...latestUnique, NEW_VAL].forEach(v => {
+            const o = document.createElement('option'); o.value = v; o.textContent = v; catSel.appendChild(o);
+          });
+          catSel.value = latestUnique[0] || NEW_VAL;
+          catSel.dispatchEvent(new Event('change'));
         });
-        // refresh isi dropdown category di form ini
-        const latestUnique = Array.from(new Set((categories||[]).map(x => x.Category).filter(Boolean))).sort();
-        catSel.innerHTML = '';
-        [...latestUnique, NEW_VAL].forEach(v => {
-          const o = document.createElement('option'); o.value = v; o.textContent = v; catSel.appendChild(o);
-        });
-        catSel.value = latestUnique[0] || NEW_VAL;
-        catSel.dispatchEvent(new Event('change'));
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createCategory(payload);
     };
   }
 
-  // ——— Goals — Owner dari Expense Purpose
+  // ——— Goals —
   function renderGoalsForm() {
     renderIntoMaster(`
       <div id="goalsForm" class="border rounded p-3">
@@ -482,7 +437,6 @@ function setActiveMaster(btn){
     `);
     const ownerSel = document.getElementById('goalOwnerSel');
     fillSelect(ownerSel, purposes);
-
     const f = document.getElementById('fGoal'), msg = document.getElementById('msgGoal');
     f.onsubmit = (e) => {
       e.preventDefault();
@@ -490,7 +444,7 @@ function setActiveMaster(btn){
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
         msg.textContent = 'Tersimpan.'; f.reset();
-        loadReports();
+        refreshAllData(); // Refresh laporan setelah goal baru dibuat
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createGoal(payload);
     };
