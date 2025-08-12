@@ -315,19 +315,34 @@ function getCategories() {
   }));
 }
 
+
 function getTransactions() {
-  const req = ['uniqueid','date','subcategory','category','wallet','amount','adjustedamount'];
+  const req = ['date','subcategory','category','wallet','amount','adjustedamount'];
   const { sheet, map } = assertSchemaV2_('Input', req);
   const vals = sheet.getDataRange().getValues(); vals.shift();
   const idx = k => getIndex_(map, k, 'Input');
-  return vals.filter(r => r[idx('uniqueid')]).map(r => ({
-    UniqueID: r[idx('uniqueid')], Date: r[idx('date')], Subcategory: r[idx('subcategory')],
-    Category: r[idx('category')], Wallet: r[idx('wallet')], Amount: r[idx('amount')],
-    AdjustedAmount: r[idx('adjustedamount')],
-    Note: ('note' in map) ? r[map['note'].index] : '',
-    Description: ('description' in map) ? r[map['description'].index] : '',
-  }));
+  const hasUID = ('uniqueid' in map);
+
+  const rows = [];
+  vals.forEach((r, i) => {
+    const hasAny = r[idx('date')] || r[idx('wallet')] || r[idx('subcategory')] || r[idx('amount')];
+    if (!hasAny) return;
+    const uid = hasUID ? r[idx('uniqueid')] : `LEGACY_${(i+2)}`; // row number as stable ID for legacy
+    rows.push({
+      UniqueID: uid,
+      Date: r[idx('date')],
+      Subcategory: r[idx('subcategory')],
+      Category: r[idx('category')],
+      Wallet: r[idx('wallet')],
+      Amount: r[idx('amount')],
+      AdjustedAmount: r[idx('adjustedamount')],
+      Note: ('note' in map) ? r[map['note'].index] : '',
+      Description: ('description' in map) ? r[map['description'].index] : '',
+    });
+  });
+  return rows;
 }
+
 
 // ===== Notes & Expense Purpose provider =====
 function getDistinctNotes(limit) {
