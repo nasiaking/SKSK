@@ -32,7 +32,41 @@
   const btnOpenWallet   = document.getElementById('btnOpenWallet');
   const btnOpenCategory = document.getElementById('btnOpenCategory');
   const btnOpenGoals    = document.getElementById('btnOpenGoals');
-  
+
+  // ======== Tambahan: Tombol Refresh & Toast ========
+  const btnRefresh = document.createElement('button');
+  btnRefresh.id = 'btnRefresh';
+  btnRefresh.className = 'text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition';
+  btnRefresh.textContent = 'Refresh';
+  document.querySelector('header nav').appendChild(btnRefresh);
+
+  const toast = document.createElement('div');
+  toast.id = 'toastNotif';
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #10b981;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+    z-index: 9999;
+  `;
+  document.body.appendChild(toast);
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.style.display = 'block';
+    setTimeout(() => { toast.style.display = 'none'; }, 3000);
+  }
+
+  btnRefresh.addEventListener('click', () => {
+    bootstrap();
+    showToast('✅ Data diperbarui');
+  });
+
   // ======== VIEW HELPERS ========
   function showSetup(){
     setupView.classList.remove('hidden');
@@ -59,28 +93,22 @@
 
   // ======== BOOTSTRAP ========
   function bootstrap() {
-    // Panggil satu fungsi untuk mengambil semua data
     gs('getInitialData').then(data => {
-      // Isi semua state dari satu objek data
       wallets    = data.wallets || [];
       categories = data.categories || [];
       purposes   = data.purposes || [];
       txCache    = data.transactions || [];
 
-      // Render semua bagian UI
       const subOptions = (categories || []).map(x => x.Subcategory).filter(s => s && s !== 'Transfer-In');
       fillSelect(subSel, subOptions);
-
       fillSelect(walSel, (wallets||[]).map(x => x.Wallet));
       fillSelect(transferSel, (wallets||[]).map(x => x.Wallet));
-
       fillDatalist(noteDL, data.notes || []);
       fillSelect(expSel, purposes);
       
       renderTransactions();
       renderBudgetSummary(data.budgetSummary || []);
       renderGoalsProgress(data.goalsProgress || []);
-
       refreshTransferUI();
       
       dateInp.valueAsNumber = Date.now() - (new Date()).getTimezoneOffset()*60000;
@@ -146,7 +174,7 @@
     disableForm(true);
     google.script.run.withSuccessHandler(() => {
       amtInp.value = ''; noteInp.value = ''; descInp.value = '';
-      refreshAllData(); // Ambil semua data terbaru
+      refreshAllData();
       disableForm(false);
     }).withFailureHandler(err => { alert((err && err.message) || 'Gagal menyimpan.'); disableForm(false); })
       .addTransaction(payload);
@@ -203,20 +231,20 @@
   }
 
   function renderGoalsProgress(list) {
-      goalsWrap.innerHTML = '';
-      (list || []).forEach(g => {
-        const pct = Math.max(0, Math.min(1, Number(g.completion || 0)));
-        const item = document.createElement('div');
-        item.innerHTML = `
-          <div class="flex justify-between text-sm">
-            <div class="font-medium">${escapeHtml(g.goal || '')}</div>
-            <div>${formatMoney(g.progress || 0)} / ${formatMoney(g.needed || 0)}</div>
-          </div>
-          <div class="w-full bg-slate-200 rounded h-2 overflow-hidden">
-            <div class="bg-emerald-500 h-2" style="width:${(pct * 100).toFixed(0)}%"></div>
-          </div>`;
-        goalsWrap.appendChild(item);
-      });
+    goalsWrap.innerHTML = '';
+    (list || []).forEach(g => {
+      const pct = Math.max(0, Math.min(1, Number(g.completion || 0)));
+      const item = document.createElement('div');
+      item.innerHTML = `
+        <div class="flex justify-between text-sm">
+          <div class="font-medium">${escapeHtml(g.goal || '')}</div>
+          <div>${formatMoney(g.progress || 0)} / ${formatMoney(g.needed || 0)}</div>
+        </div>
+        <div class="w-full bg-slate-200 rounded h-2 overflow-hidden">
+          <div class="bg-emerald-500 h-2" style="width:${(pct * 100).toFixed(0)}%"></div>
+        </div>`;
+      goalsWrap.appendChild(item);
+    });
   }
   
   // ======== UTIL & MASTER DATA FORM ========
@@ -278,15 +306,10 @@
       const payload = Object.fromEntries(new FormData(f).entries());
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
-        msg.textContent = 'Tersimpan.'; f.reset();
-        gs('getExpensePurposes', 200).then(list => {
-          purposes = list || [];
-          fillSelect(expSel, purposes);
-          const walletOwnerSel = document.getElementById('walletOwnerSel');
-          if (walletOwnerSel) fillSelect(walletOwnerSel, purposes);
-          const goalOwnerSel = document.getElementById('goalOwnerSel');
-          if (goalOwnerSel) fillSelect(goalOwnerSel, purposes);
-        });
+        msg.textContent = 'Tersimpan.';
+        f.reset();
+        bootstrap();
+        showToast('✅ Data diperbarui');
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createAccountPurpose(payload);
     };
@@ -302,7 +325,12 @@
             <input name="wallet" class="mt-1 w-full border rounded p-2" required />
           </label>
           <label class="col-span-1">Wallet Type
-            <input name="walletType" class="mt-1 w-full border rounded p-2" placeholder="Personal/Bisnis" />
+            <select name="walletType" class="mt-1 w-full border rounded p-2" required>
+              <option value="Cash & Bank">Cash & Bank</option>
+              <option value="Savings/Investments">Savings/Investments</option>
+              <option value="Other Asset">Other Asset</option>
+              <option value="Liabilities">Liabilities</option>
+            </select>
           </label>
           <label class="col-span-1">Wallet Owner
             <select id="walletOwnerSel" name="walletOwner" class="mt-1 w-full border rounded p-2"></select>
@@ -322,12 +350,10 @@
       const payload = Object.fromEntries(new FormData(f).entries());
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
-        msg.textContent = 'Tersimpan.'; f.reset();
-        gs('getWallets').then(w => {
-          wallets = w || [];
-          fillSelect(walSel, wallets.map(x=>x.Wallet));
-          fillSelect(transferSel, wallets.map(x=>x.Wallet));
-        });
+        msg.textContent = 'Tersimpan.';
+        f.reset();
+        bootstrap();
+        showToast('✅ Data diperbarui');
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createWallet(payload);
     };
@@ -392,19 +418,10 @@
       if (!payload.subcategory) { msg.textContent = 'Subcategory wajib diisi.'; return; }
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
-        msg.textContent = 'Tersimpan.'; f.reset(); newCatInp.value = '';
-        gs('getCategories').then(c => {
-          categories = c || [];
-          const subs = categories.map(x=>x.Subcategory).filter(s => s && s !== 'Transfer-In');
-          fillSelect(subSel, subs);
-          const latestUnique = Array.from(new Set((categories||[]).map(x => x.Category).filter(Boolean))).sort();
-          catSel.innerHTML = '';
-          [...latestUnique, NEW_VAL].forEach(v => {
-            const o = document.createElement('option'); o.value = v; o.textContent = v; catSel.appendChild(o);
-          });
-          catSel.value = latestUnique[0] || NEW_VAL;
-          catSel.dispatchEvent(new Event('change'));
-        });
+        msg.textContent = 'Tersimpan.';
+        f.reset(); newCatInp.value = '';
+        bootstrap();
+        showToast('✅ Data diperbarui');
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createCategory(payload);
     };
@@ -443,8 +460,17 @@
       const payload = Object.fromEntries(new FormData(f).entries());
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
-        msg.textContent = 'Tersimpan.'; f.reset();
-        refreshAllData(); // Refresh laporan setelah goal baru dibuat
+        msg.textContent = 'Tersimpan.';
+        f.reset();
+        // Otomatis buat wallet untuk goal ini
+        const walletPayload = {
+          wallet: payload.goal,
+          walletType: 'Other Asset',
+          walletOwner: payload.goalOwner || ''
+        };
+        google.script.run.createWallet(walletPayload);
+        bootstrap();
+        showToast('✅ Data diperbarui');
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createGoal(payload);
     };
