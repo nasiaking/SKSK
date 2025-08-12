@@ -127,14 +127,24 @@ function appendRow_(tab, rowObj){
   if ('updatedat' in map && !('updatedat' in rowObj)) rowObj[map['updatedat'].name] = now;
   if ('createdat' in map && !('createdat' in rowObj)) rowObj[map['createdat'].name] = now;
   if ('uniqueid'  in map && !('uniqueid'  in rowObj)) rowObj[map['uniqueid'].name]  = Utilities.getUuid();
+
   const ordered = headers.map(h => (h in rowObj ? rowObj[h] : ''));
   sheet.getRange(sheet.getLastRow()+1,1,1,headers.length).setValues([ordered]);
 
+  // Clear caches yang terdampak
   const cache = CacheService.getScriptCache();
-  if (tab === 'Wallet Setup') cache.remove('master_wallets');
-  if (tab === 'Category Setup') cache.remove('master_categories');
-  if (tab === 'Account Setup') cache.remove('master_purposes');
-  if (tab === 'Goals Setup') cache.remove('report_goals');
+
+  if (tab === 'Wallet Setup') {
+    cache.remove('master_wallets');                 // daftar wallet
+    cache.removeAll(['map_wallets','wallet_balances']); // peta wallet & saldo dashboard
+  }
+  if (tab === 'Category Setup') {
+    cache.remove('master_categories');              // daftar kategori
+    cache.removeAll(['map_categories','report_budget']); // peta kategori & ringkasan budget
+  }
+  if (tab === 'Account Setup')  cache.remove('master_purposes');
+  if (tab === 'Goals Setup')    cache.remove('report_goals');
+
   return { ok:true };
 }
 
@@ -369,87 +379,91 @@ function addTransaction(row){
 }
 
 // ===== Reports =====
-  function getBudgetSummary(){
-    const cache = CacheService.getScriptCache();
-    const key = 'report_budget';
-    const cached = cache.get(key); if (cached) return JSON.parse(cached);
+function getBudgetSummary(){
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'report_budget';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) return JSON.parse(cached);
 
-    const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
-    const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount']);
+  const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
+  const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount']);
+  const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
+  const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
+  const c = k => getIndex_(cat.map, k, 'Category Setup');
+  const i = k => getIndex_(inp.map, k, 'Input');
 
-    const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
-    const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-    const c = k => getIndex_(cat.map,k,'Category Setup');
-    const i = k => getIndex_(inp.map,k,'Input');
+  const budgetMap = {};
+  cVals.forEach(r => {
+    const sub = String(r[c('subcategory')] || '').trim();
+    if (!sub) return;
+    const catName = r[c('category')] || '';
+    const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
+    const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
+    budgetMap[sub] = { category: catName, budget };
+  });
 
-    // 1) daftar budget per sub, tetapi SKIP category Transfer
-    const budgetMap = {};
-    cVals.forEach(r=>{
-      const sub = String(r[c('subcategory')]||'').trim(); if (!sub) return;
-      const catName = String(r[c('category')]||'').trim();
-      if (catName.toLowerCase() === 'transfer') return; // ← abaikan transfer
-      const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
-      const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
-      budgetMap[sub] = { category: catName, budget };
-    });
+  const spentBySub = {};
+  iVals.forEach(r => {
+    const catName = String(r[i('category')] || '').trim();
+    if (catName.toLowerCase() === 'transfer') return; // ← skip transfer
 
-    // 2) akumulasi spent (negatif) per sub, SKIP baris input dengan category Transfer
-    const spentBySub = {};
-    iVals.forEach(r=>{
-      const sub = String(r[i('subcategory')]||'').trim(); if (!sub) return;
-      const catName = String(r[i('category')]||'').trim();
-      if (catName.toLowerCase() === 'transfer') return; // ← abaikan transfer
-      const adj = Number(r[i('adjustedamount')] || 0);
-      if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
-      if (!budgetMap[sub]) budgetMap[sub] = { category: catName || '', budget: 0 };
-    });
+    const sub = String(r[i('subcategory')] || '').trim();
+    if (!sub) return;
 
-    const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
-    const rows = subs.map(sub=>{
-      const info = budgetMap[sub] || { category:'', budget:0 };
-      const spent = Number(spentBySub[sub] || 0); // negatif
-      return {
-        category: info.category || '',
-        subcategory: sub,
-        spent,
-        budget: Number(info.budget || 0),
-        remaining: Number(info.budget || 0) + spent
-      };
-    });
+    const adj = Number(r[i('adjustedamount')] || 0);
+    if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
 
-    // urutkan biar rapi
-    rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
-    cache.put(key, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
-    return rows;
-  }
+    if (!budgetMap[sub]) budgetMap[sub] = { category: catName || '', budget: 0 };
+  });
 
+  const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
+  const rows = subs.map(sub => {
+    const info = budgetMap[sub] || { category:'', budget:0 };
+    const spent = Number(spentBySub[sub] || 0);
+    return {
+      category: info.category || '',
+      subcategory: sub,
+      spent,
+      budget: Number(info.budget || 0),
+      remaining: Number(info.budget || 0) + spent
+    };
+  });
+  rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
+
+  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
+  return rows;
+}
 
 // NEW: Wallet Balances (untuk Dashboard)
 function getWalletBalances(){
   const cache = CacheService.getScriptCache();
-  const key = 'wallet_balances';
-  const cached = cache.get(key); if (cached) return JSON.parse(cached);
+  const CACHE_KEY = 'wallet_balances';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) return JSON.parse(cached);
 
   const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-  const i = k => getIndex_(inp.map,k,'Input');
+  const i = k => getIndex_(inp.map, k, 'Input');
 
-  const walMap = getWalletMap_(); // ambil tipe wallet
+  const walMap = getWalletMap_(); // tipe wallet
   const bal = {};
-  iVals.forEach(r=>{
-    const w = String(r[i('wallet')]||'').trim(); if (!w) return;
+  iVals.forEach(r => {
+    const w = String(r[i('wallet')] || '').trim();
+    if (!w) return;
     const a = Number(r[i('adjustedamount')] || 0);
     bal[w] = (bal[w] || 0) + a;
   });
 
   const rows = Object.keys(walMap).map(w => ({
     wallet: w,
-    type: walMap[w].WalletType || '',
+    type: (walMap[w] && walMap[w].WalletType) ? walMap[w].WalletType : 'Other Asset',
     balance: Number(bal[w] || 0)
   }));
-  cache.put(key, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
+
+  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
 }
+
 
 function getGoalsWithProgress(){
   const cache = CacheService.getScriptCache();
