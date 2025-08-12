@@ -1,4 +1,4 @@
-// ===== SKSK v0.7.4 Backend.gs (Optimized with Caching) =====
+// ===== SKSK v0.7.5 Backend.gs (Optimized + Period Filter "All") =====
 const TEMPLATE_ID = '1FgXgKYyiw5ZL1Dft4XyaQ2TEfTH22orDUFTXu5n5gTw';
 const USER_PROP_KEY = 'sheetId';
 const SCHEMA_VARIANT_KEY = 'SCHEMA_VARIANT';
@@ -133,14 +133,13 @@ function appendRow_(tab, rowObj){
 
   // Clear caches yang terdampak
   const cache = CacheService.getScriptCache();
-
   if (tab === 'Wallet Setup') {
-    cache.remove('master_wallets');                 // daftar wallet
-    cache.removeAll(['map_wallets','wallet_balances']); // peta wallet & saldo dashboard
+    cache.remove('master_wallets');
+    cache.removeAll(['map_wallets','wallet_balances']);
   }
   if (tab === 'Category Setup') {
-    cache.remove('master_categories');              // daftar kategori
-    cache.removeAll(['map_categories','report_budget']); // peta kategori & ringkasan budget
+    cache.remove('master_categories');
+    cache.removeAll(['map_categories','report_budget']);
   }
   if (tab === 'Account Setup')  cache.remove('master_purposes');
   if (tab === 'Goals Setup')    cache.remove('report_goals');
@@ -284,7 +283,7 @@ function getDistinctNotes(limit){
   const start = Math.max(2, last - 800);
   const rng = sheet.getRange(start,1,last-start+1,sheet.getLastColumn()).getValues();
   const i = k => getIndex_(map,k,'Input');
-  const rows = rng.map(r => ({ d:new Date(r[i('date')]), n:String(r[map['note'].index]||'').trim() })).filter(x=>x.n);
+  const rows = rng.map(r => ({ d:new Date(r[i('date')]), n:String(r[map['note']?.index]||'').trim() })).filter(x=>x.n);
   rows.sort((a,b)=> b.d - a.d);
   const seen = new Set(), out = [];
   for (const x of rows){ if (!seen.has(x.n)){ seen.add(x.n); out.push(x.n); if (out.length>=LIM) break; } }
@@ -386,16 +385,15 @@ function getBudgetSummary(){
   if (cached) return JSON.parse(cached);
 
   const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
-  const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount']);
+  const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount','date']);
   const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
   const c = k => getIndex_(cat.map, k, 'Category Setup');
   const i = k => getIndex_(inp.map, k, 'Input');
 
   const budgetMap = {};
-  cVals.forEach(r => {
-    const sub = String(r[c('subcategory')] || '').trim();
-    if (!sub) return;
+  cVals.forEach(r=>{
+    const sub = String(r[c('subcategory')]||'').trim(); if (!sub) return;
     const catName = r[c('category')] || '';
     const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
     const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
@@ -403,13 +401,11 @@ function getBudgetSummary(){
   });
 
   const spentBySub = {};
-  iVals.forEach(r => {
+  iVals.forEach(r=>{
     const catName = String(r[i('category')] || '').trim();
-    if (catName.toLowerCase() === 'transfer') return; // ← skip transfer
+    if (catName.toLowerCase() === 'transfer') return; // skip transfer
 
-    const sub = String(r[i('subcategory')] || '').trim();
-    if (!sub) return;
-
+    const sub = String(r[i('subcategory')] || '').trim(); if (!sub) return;
     const adj = Number(r[i('adjustedamount')] || 0);
     if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
 
@@ -417,16 +413,10 @@ function getBudgetSummary(){
   });
 
   const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
-  const rows = subs.map(sub => {
+  const rows = subs.map(sub=>{
     const info = budgetMap[sub] || { category:'', budget:0 };
     const spent = Number(spentBySub[sub] || 0);
-    return {
-      category: info.category || '',
-      subcategory: sub,
-      spent,
-      budget: Number(info.budget || 0),
-      remaining: Number(info.budget || 0) + spent
-    };
+    return { category: info.category || '', subcategory: sub, spent, budget: Number(info.budget || 0), remaining: Number(info.budget || 0) + spent };
   });
   rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
 
@@ -434,7 +424,6 @@ function getBudgetSummary(){
   return rows;
 }
 
-// NEW: Wallet Balances (untuk Dashboard)
 function getWalletBalances(){
   const cache = CacheService.getScriptCache();
   const CACHE_KEY = 'wallet_balances';
@@ -445,11 +434,10 @@ function getWalletBalances(){
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
   const i = k => getIndex_(inp.map, k, 'Input');
 
-  const walMap = getWalletMap_(); // tipe wallet
+  const walMap = getWalletMap_(); // ambil tipe wallet
   const bal = {};
-  iVals.forEach(r => {
-    const w = String(r[i('wallet')] || '').trim();
-    if (!w) return;
+  iVals.forEach(r=>{
+    const w = String(r[i('wallet')]||'').trim(); if (!w) return;
     const a = Number(r[i('adjustedamount')] || 0);
     bal[w] = (bal[w] || 0) + a;
   });
@@ -459,11 +447,9 @@ function getWalletBalances(){
     type: (walMap[w] && walMap[w].WalletType) ? walMap[w].WalletType : 'Other Asset',
     balance: Number(bal[w] || 0)
   }));
-
   cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
 }
-
 
 function getGoalsWithProgress(){
   const cache = CacheService.getScriptCache();
@@ -472,7 +458,7 @@ function getGoalsWithProgress(){
 
   const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-  const i = k => getIndex_(inp.map,k,'Input');
+  const i = k => getIndex_(inp.map, k, 'Input');
 
   const balanceByWallet = {};
   iVals.forEach(r=>{
@@ -483,7 +469,7 @@ function getGoalsWithProgress(){
 
   const goals = assertSchemaV2_('Goals Setup', ['goals']);
   const gVals = goals.sheet.getDataRange().getValues(); gVals.shift();
-  const g = k => getIndex_(goals.map,k,'Goals Setup');
+  const g = k => getIndex_(goals.map, k, 'Goals Setup');
   const hasNeeded = ('nominalneeded' in goals.map);
   const hasOwner  = ('goalowner' in goals.map);
 
@@ -500,6 +486,89 @@ function getGoalsWithProgress(){
   return rows;
 }
 
+// ===== Period Helpers & Filtered Endpoints (support "All") =====
+function resolvePeriodRange_(p){
+  // p.year/p.month bisa number atau string 'All'
+  if (!p || p.year === 'All' || !p.year) {
+    return { filter: 'none', start: null, end: null }; // semua periode
+  }
+  const y = Number(p.year);
+  if (!p.month || p.month === 'All') {
+    const start = new Date(y, 0, 1);
+    const end   = new Date(y + 1, 0, 1);
+    return { filter: 'year', start, end };
+  }
+  const m = Number(p.month); // 1..12
+  const start = new Date(y, m - 1, 1);
+  const end   = new Date(y, m, 1);
+  return { filter: 'month', start, end };
+}
+
+function getAvailableYears(){
+  const list = getTransactions() || [];
+  const years = new Set();
+  list.forEach(tx => {
+    const d = new Date(tx.Date);
+    if (d instanceof Date && !isNaN(d)) years.add(d.getFullYear());
+  });
+  const arr = Array.from(years).sort((a,b)=> b - a);
+  return arr.length ? arr : [new Date().getFullYear()];
+}
+
+function getTransactionsByPeriod(p){
+  const pr = resolvePeriodRange_(p || {});
+  const all = getTransactions() || [];
+  if (pr.filter === 'none') return all;
+  return all.filter(tx => {
+    const d = new Date(tx.Date);
+    return (d >= pr.start && d < pr.end);
+  });
+}
+
+function getBudgetSummaryPeriod(p){
+  const pr = resolvePeriodRange_(p || {});
+
+  // ambil budget per subcategory langsung dari sheet (agar kolom Budget Subcategory kepakai)
+  const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
+  const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
+  const c = k => getIndex_(cat.map, k, 'Category Setup');
+
+  const budgetMap = {};
+  cVals.forEach(r=>{
+    const sub = String(r[c('subcategory')]||'').trim(); if (!sub) return;
+    const catName = r[c('category')] || '';
+    const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
+    const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
+    budgetMap[sub] = { category: catName, budget };
+  });
+
+  const spentBySub = {};
+  const allTx = getTransactions() || [];
+  allTx.forEach(r=>{
+    const d = new Date(r.Date);
+    if (pr.filter !== 'none' && !(d >= pr.start && d < pr.end)) return;
+
+    const catName = String(r.Category || '').trim();
+    if (catName.toLowerCase() === 'transfer') return; // skip transfer
+
+    const sub = String(r.Subcategory || '').trim();
+    if (!sub) return;
+    const adj = Number(r.AdjustedAmount || 0);
+    if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
+
+    if (!budgetMap[sub]) budgetMap[sub] = { category: catName || '', budget: 0 };
+  });
+
+  const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
+  const rows = subs.map(sub=>{
+    const info = budgetMap[sub] || { category:'', budget:0 };
+    const spent = Number(spentBySub[sub] || 0);
+    return { category: info.category || '', subcategory: sub, spent, budget: Number(info.budget || 0), remaining: Number(info.budget || 0) + spent };
+  });
+  rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
+  return rows;
+}
+
 // ===== Initial Aggregation =====
 function getInitialData(){
   return {
@@ -510,6 +579,7 @@ function getInitialData(){
     purposes: getExpensePurposes(200),
     budgetSummary: getBudgetSummary(),
     goalsProgress: getGoalsWithProgress(),
-    walletBalances: getWalletBalances()
+    walletBalances: getWalletBalances(),
+    availableYears: getAvailableYears()
   };
 }
