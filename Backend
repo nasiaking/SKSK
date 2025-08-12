@@ -1,10 +1,23 @@
-// ===== SKSK v0.7.2 Backend.gs (FIXED) =====
+// ===== SKSK v0.7.3 Backend.gs (Optimized with Caching) =====
 
 // Konstanta
 const TEMPLATE_ID = '1FgXgKYyiw5ZL1Dft4XyaQ2TEfTH22orDUFTXu5n5gTw';
 const USER_PROP_KEY = 'sheetId';
 const SCHEMA_VARIANT_KEY = 'SCHEMA_VARIANT';
 const IDEMP_SCAN_ROWS = 50;
+const CACHE_EXPIRATION_SECONDS = 300; // Cache selama 5 menit untuk laporan
+const MASTER_CACHE_EXPIRATION_SECONDS = 1800; // Cache selama 30 menit untuk data master
+
+// ===== Util Cache =====
+function clearCacheByPrefix(prefix) {
+  const cache = CacheService.getScriptCache();
+  // Karena Apps Script tidak punya cara untuk daftar keys, kita harus hapus key secara eksplisit
+  // Untuk aplikasi ini, kita akan hapus cache laporan saat ada transaksi baru.
+  const keys = ['report_budget', 'report_goals', 'tx_list'];
+  cache.removeAll(keys);
+  console.log('Report caches cleared due to new transaction.');
+}
+
 
 // ===== Router Web App & Assets PWA =====
 function doGet(e) {
@@ -72,25 +85,6 @@ function createNewDb() {
   return { ok: true, id: ss.getId(), url: `https://docs.google.com/spreadsheets/d/${ss.getId()}/edit` };
 }
 
-function getTabUrl(tabName) {
-  const ss = getOrCreateDb_();
-  const sh = ss.getSheetByName(tabName);
-  if (!sh) throw new Error(`Sheet '${tabName}' tidak ditemukan di DB aktif.`);
-  const url = `https://docs.google.com/spreadsheets/d/${ss.getId()}/edit#gid=${sh.getSheetId()}`;
-  return { url };
-}
-
-function getSetupLinks() {
-  const tabs = ['Wallet Setup', 'Category Setup', 'Account Setup', 'Goals Setup'];
-  const out = {};
-  const ss = getOrCreateDb_();
-  tabs.forEach(t => {
-    const sh = ss.getSheetByName(t);
-    out[t] = sh ? `https://docs.google.com/spreadsheets/d/${ss.getId()}/edit#gid=${sh.getSheetId()}` : '';
-  });
-  return out;
-}
-
 function detectSchemaVariant_() {
   try {
     const sh = getSheet_('Input');
@@ -102,7 +96,6 @@ function detectSchemaVariant_() {
 
 function seedDemo_(ss) {
   const now = new Date();
-  // Wallet Setup minimal
   let sh = ss.getSheetByName('Wallet Setup');
   if (sh) {
     const { headers, map } = buildHeaderMap_(sh);
@@ -111,7 +104,7 @@ function seedDemo_(ss) {
       const row = {};
       if ('uniqueid' in map) row[map['uniqueid'].name] = Utilities.getUuid();
       if ('wallet' in map) row[map['wallet'].name] = 'Cash';
-      if ('wallettype' in map) row[map['wallettype'].name] = 'Cash & Bank';
+      if ('wallettype' in map) row[map['wallettype'].name] = 'Personal';
       if ('walletowner' in map) row[map['walletowner'].name] = 'Owner';
       if ('createdat' in map) row[map['createdat'].name] = now;
       if ('updatedat' in map) row[map['updatedat'].name] = now;
@@ -119,7 +112,6 @@ function seedDemo_(ss) {
       sh.getRange(sh.getLastRow()+1, 1, 1, headers.length).setValues([arr]);
     }
   }
-  // Category Setup: pastikan Transfer-Out & Transfer-In
   sh = ss.getSheetByName('Category Setup');
   if (sh) {
     const { headers, map } = buildHeaderMap_(sh);
@@ -131,8 +123,6 @@ function seedDemo_(ss) {
       if ('transactiontype' in map) row[map['transactiontype'].name] = 'Transfer';
       if ('category' in map) row[map['category'].name] = 'Transfer';
       if ('subcategory' in map) row[map['subcategory'].name] = sub;
-      if ('ratios' in map) row[map['ratios'].name] = '';
-      if ('budgetsubcategory' in map) row[map['budgetsubcategory'].name] = '';
       if ('createdat' in map) row[map['createdat'].name] = now;
       if ('updatedat' in map) row[map['updatedat'].name] = now;
       const arr = headers.map(h => h in row ? row[h] : '');
@@ -143,26 +133,34 @@ function seedDemo_(ss) {
   }
 }
 
-// ===== Util: append 1 row ke tab sesuai header (nama kolom fleksibel) =====
+// ===== Util: append 1 row ke tab sesuai header =====
 function appendRow_(tab, rowObj) {
-  const { sheet, headers, map } = assertSchemaV2_(tab, []); // validasi kolom dilakukan di caller
+  const { sheet, headers, map } = assertSchemaV2_(tab, []);
   const now = new Date();
   if ('updatedat' in map && !('updatedat' in rowObj)) rowObj[map['updatedat'].name] = now;
   if ('createdat' in map && !('createdat' in rowObj)) rowObj[map['createdat'].name] = now;
   if ('uniqueid'  in map && !('uniqueid'  in rowObj)) rowObj[map['uniqueid'].name]  = Utilities.getUuid();
   const ordered = headers.map(h => (h in rowObj ? rowObj[h] : ''));
   sheet.getRange(sheet.getLastRow()+1, 1, 1, headers.length).setValues([ordered]);
+
+  // Hapus cache yang relevan setelah data diubah
+  const cache = CacheService.getScriptCache();
+  if (tab === 'Wallet Setup') cache.remove('master_wallets');
+  if (tab === 'Category Setup') cache.remove('master_categories');
+  if (tab === 'Account Setup') cache.remove('master_purposes');
+  if (tab === 'Goals Setup') cache.remove('report_goals'); // Goals report bergantung pada ini
+
   return { ok: true };
 }
 
 // ===== Setup Creators =====
 function createWallet(payload) {
-  const req = ['wallet']; // minimal
+  const req = ['wallet'];
   const { map } = assertSchemaV2_('Wallet Setup', req);
   const row = {};
   row[map['wallet'].name] = String(payload.wallet || '').trim();
   if (!row[map['wallet'].name]) throw new Error('Nama Wallet wajib diisi.');
-  if ('wallettype' in map)   row[map['wallettype'].name]   = payload.walletType || 'Cash & Bank';
+  if ('wallettype' in map)   row[map['wallettype'].name]   = payload.walletType || 'Personal';
   if ('walletowner' in map)  row[map['walletowner'].name]  = payload.walletOwner || 'Owner';
   return appendRow_('Wallet Setup', row);
 }
@@ -175,13 +173,11 @@ function createCategory(payload) {
   row[map['category'].name]        = String(payload.category || '').trim();
   row[map['transactiontype'].name] = String(payload.transactionType || '').trim() || 'Expense';
   if (!row[map['subcategory'].name] || !row[map['category'].name]) throw new Error('Subcategory & Category wajib.');
-  if ('ratios' in map)              row[map['ratios'].name]            = payload.ratios || '';
-  if ('budgetsubcategory' in map)   row[map['budgetsubcategory'].name] = payload.budgetSubcategory || '';
   return appendRow_('Category Setup', row);
 }
 
 function createAccountPurpose(payload) {
-  const { map } = assertSchemaV2_('Account Setup', []); // kolom bisa "Expense Purpose" atau "Expense For"
+  const { map } = assertSchemaV2_('Account Setup', []);
   const key = ('expensepurpose' in map) ? map['expensepurpose'].name
             : ('expensefor' in map)     ? map['expensefor'].name : '';
   if (!key) throw new Error("Kolom 'Expense Purpose' tidak ditemukan di 'Account Setup'.");
@@ -191,60 +187,24 @@ function createAccountPurpose(payload) {
   return appendRow_('Account Setup', row);
 }
 
-
-function walletExists_(name) {
-  try {
-    const sh = getSheet_('Wallet Setup');
-    const { map } = buildHeaderMap_(sh);
-    const vals = sh.getDataRange().getValues(); vals.shift();
-    const idx = k => getIndex_(map, k, 'Wallet Setup');
-    for (const r of vals) {
-      const w = String(r[idx('wallet')] || '').trim();
-      if (w && w === String(name).trim()) return true;
-    }
-    return false;
-  } catch (e) { return false; }
-}
-
 function createGoal(payload) {
-  const { map } = assertSchemaV2_('Goals Setup', []); // fleksibel
+  const { map } = assertSchemaV2_('Goals Setup', []);
   const row = {};
   const nameKey = ('goals' in map) ? map['goals'].name : null;
   if (!nameKey) throw new Error("Kolom 'Goals' tidak ditemukan di 'Goals Setup'.");
   row[nameKey] = String(payload.goal || '').trim();
   if (!row[nameKey]) throw new Error('Nama Goal wajib diisi.');
-  if ('goalowner' in map)      row[map['goalowner'].name]      = payload.goalOwner || '';
-  if ('deadline' in map)       row[map['deadline'].name]       = payload.deadline ? new Date(payload.deadline) : '';
-  if ('nominalneeded' in map)  row[map['nominalneeded'].name]  = Number(payload.nominalNeeded || 0);
-  const res = appendRow_('Goals Setup', row);
-  try {
-    if (!walletExists_(row[nameKey])) {
-      createWallet({ wallet: row[nameKey], walletType: 'Saving', walletOwner: payload.goalOwner || '' });
-    }
-  } catch (e) {}
-  return res;
+  if ('goalowner' in map)     row[map['goalowner'].name]     = payload.goalOwner || '';
+  if ('deadline' in map)      row[map['deadline'].name]      = payload.deadline ? new Date(payload.deadline) : '';
+  if ('nominalneeded' in map) row[map['nominalneeded'].name] = Number(payload.nominalNeeded || 0);
+  return appendRow_('Goals Setup', row);
 }
 
-// ===== Lookup util =====
-function lookupValue(tab, keyCol, keyVal, targetCol) {
-  const sh = getSheet_(tab);
-  const { map } = buildHeaderMap_(sh);
-  const keyIndex = getIndex_(map, keyCol, tab);
-  const targetIndex = getIndex_(map, targetCol, tab);
-  const values = sh.getDataRange().getValues();
-  values.shift();
-  for (const row of values) {
-    if (String(row[keyIndex]).trim() === String(keyVal).trim()) {
-      return row[targetIndex];
-    }
-  }
-  return '';
-}
-
-// ===== Cache Map: Category & Wallet =====
+// ===== Cache Map: Category & Wallet (Internal use) =====
 function getCategoryMap_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('catmap');
+  const CACHE_KEY = 'map_categories';
+  const hit = cache.get(CACHE_KEY);
   if (hit) return JSON.parse(hit);
 
   const sh = getSheet_('Category Setup');
@@ -262,13 +222,14 @@ function getCategoryMap_() {
       Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : ''
     };
   });
-  cache.put('catmap', JSON.stringify(m), 300);
+  cache.put(CACHE_KEY, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
   return m;
 }
 
 function getWalletMap_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('walletmap');
+  const CACHE_KEY = 'map_wallets';
+  const hit = cache.get(CACHE_KEY);
   if (hit) return JSON.parse(hit);
 
   const sh = getSheet_('Wallet Setup');
@@ -282,73 +243,81 @@ function getWalletMap_() {
     if (!w) return;
     m[w] = { WalletOwner: r[idx('walletowner')], WalletType: r[idx('wallettype')] };
   });
-  cache.put('walletmap', JSON.stringify(m), 300);
+  cache.put(CACHE_KEY, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
   return m;
 }
 
-// ===== Business logic =====
-function getAdjustedAmount(transactionType, subcategory, amount) {
-  const sub = normalizeHeaderName_(subcategory);
-  if (transactionType === 'Expense' || sub === 'transferout') return -1 * Math.abs(amount);
-  if (transactionType === 'Income' || transactionType === 'Other Income' || sub === 'transferin') return Math.abs(amount);
-  return 0;
-}
-
-// ===== Getters =====
+// ===== Getters (Public, Cached) =====
 function getWallets() {
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'master_wallets';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) {
+    console.log('Mengambil Wallets dari CACHE');
+    return JSON.parse(cached);
+  }
+
+  console.log('Membaca Wallets dari SHEET');
   const { sheet, map } = assertSchemaV2_('Wallet Setup', ['wallet', 'wallettype', 'walletowner']);
   const vals = sheet.getDataRange().getValues(); vals.shift();
   const idx = k => getIndex_(map, k, 'Wallet Setup');
-  return vals.filter(r => r[idx('wallet')]).map(r => ({
+  const result = vals.filter(r => r[idx('wallet')]).map(r => ({
     UniqueID: ('uniqueid' in map) ? r[map['uniqueid'].index] : '',
     Wallet: r[idx('wallet')], WalletType: r[idx('wallettype')], WalletOwner: r[idx('walletowner')],
   }));
+
+  cache.put(CACHE_KEY, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
+  return result;
 }
 
 function getCategories() {
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'master_categories';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) {
+    console.log('Mengambil Categories dari CACHE');
+    return JSON.parse(cached);
+  }
+  
+  console.log('Membaca Categories dari SHEET');
   const { sheet, map } = assertSchemaV2_('Category Setup', ['subcategory', 'category', 'transactiontype']);
   const vals = sheet.getDataRange().getValues(); vals.shift();
   const idx = k => getIndex_(map, k, 'Category Setup');
-  return vals.filter(r => String(r[idx('subcategory')] || '').trim()).map(r => ({
+  const result = vals.filter(r => String(r[idx('subcategory')] || '').trim()).map(r => ({
     Subcategory: r[idx('subcategory')], Category: r[idx('category')], TransactionType: r[idx('transactiontype')],
     Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : '',
   }));
+  
+  cache.put(CACHE_KEY, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
+  return result;
 }
 
-
 function getTransactions() {
-  // Tidak lagi mewajibkan 'uniqueid' agar data lama tetap tampil
-  const req = ['date','subcategory','category','wallet','amount','adjustedamount'];
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'tx_list';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) {
+    console.log('Mengambil Transactions dari CACHE');
+    return JSON.parse(cached);
+  }
+
+  console.log('Membaca Transactions dari SHEET');
+  const req = ['uniqueid','date','subcategory','category','wallet','amount','adjustedamount'];
   const { sheet, map } = assertSchemaV2_('Input', req);
   const vals = sheet.getDataRange().getValues(); vals.shift();
   const idx = k => getIndex_(map, k, 'Input');
+  const result = vals.filter(r => r[idx('uniqueid')]).map(r => ({
+    UniqueID: r[idx('uniqueid')], Date: r[idx('date')], Subcategory: r[idx('subcategory')],
+    Category: r[idx('category')], Wallet: r[idx('wallet')], Amount: r[idx('amount')],
+    AdjustedAmount: r[idx('adjustedamount')],
+    Note: ('note' in map) ? r[map['note'].index] : '',
+    Description: ('description' in map) ? r[map['description'].index] : '',
+  }));
 
-  const hasUID = ('uniqueid' in map);
-  const out = [];
-
-  for (let r = 0; r < vals.length; r++) {
-    const row = vals[r];
-    // Skip baris kosong (tanpa tanggal & tanpa wallet)
-    if (!row[idx('date')] && !row[idx('wallet')]) continue;
-
-    const uid = hasUID && row[map['uniqueid'].index] ? row[map['uniqueid'].index] : `LEGACY_${r+2}`;
-    out.push({
-      UniqueID: uid,
-      Date: row[idx('date')],
-      Subcategory: row[idx('subcategory')],
-      Category: row[idx('category')],
-      Wallet: row[idx('wallet')],
-      Amount: row[idx('amount')],
-      AdjustedAmount: row[idx('adjustedamount')],
-      Note: ('note' in map) ? row[map['note'].index] : '',
-      Description: ('description' in map) ? row[map['description'].index] : '',
-    });
-  }
-  return out;
+  cache.put(CACHE_KEY, JSON.stringify(result), CACHE_EXPIRATION_SECONDS);
+  return result;
 }
 
-
-// ===== Notes & Expense Purpose provider =====
 function getDistinctNotes(limit) {
   const LIM = Math.max(1, Number(limit || 20));
   const { sheet, map } = assertSchemaV2_('Input', ['date']);
@@ -359,7 +328,7 @@ function getDistinctNotes(limit) {
   const rng = sheet.getRange(start, 1, last - start + 1, sheet.getLastColumn()).getValues();
   const i = k => getIndex_(map, k, 'Input');
   const rows = rng.map(r => ({ d: new Date(r[i('date')]), n: String(r[map['note'].index] || '').trim() }))
-                .filter(x => x.n);
+              .filter(x => x.n);
   rows.sort((a, b) => b.d - a.d);
   const seen = new Set(), out = [];
   for (const x of rows) { if (!seen.has(x.n)) { seen.add(x.n); out.push(x.n); if (out.length >= LIM) break; } }
@@ -367,6 +336,15 @@ function getDistinctNotes(limit) {
 }
 
 function getExpensePurposes(limit) {
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'master_purposes';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) {
+    console.log('Mengambil Expense Purposes dari CACHE');
+    return JSON.parse(cached);
+  }
+
+  console.log('Membaca Expense Purposes dari SHEET');
   const LIM = Math.max(1, Number(limit || 100));
   const sh = getSheet_('Account Setup');
   const { headers } = buildHeaderMap_(sh);
@@ -376,53 +354,14 @@ function getExpensePurposes(limit) {
   if (colIdx < 0) return [];
   const vals = sh.getRange(2, colIdx + 1, Math.max(0, sh.getLastRow() - 1), 1).getValues();
   const seen = new Set(), out = [];
-  for (const [v] of vals) { const s = String(v || '').trim(); if (!s || seen.has(s)) continue; seen.add(s); out.push(s); if (out.length >= LIM) break; }
+  for (const [v] of vals) { const s = String(v || '').trim();
+  if (!s || seen.has(s)) continue; seen.add(s); out.push(s); if (out.length >= LIM) break; }
+  
+  cache.put(CACHE_KEY, JSON.stringify(out), MASTER_CACHE_EXPIRATION_SECONDS);
   return out;
 }
 
-// ===== Idempotent Twin (legacy util; tidak dipakai lagi di penulisan) =====
-function makePairKey_(txDate, fromWallet, toWallet, amount) {
-  const tz = Session.getScriptTimeZone() || 'UTC';
-  const d = Utilities.formatDate(new Date(txDate), tz, 'yyyy-MM-dd');
-  return `PAIR|${d}|${fromWallet}->${toWallet}|${Math.abs(Number(amount)||0)}`;
-}
-function findExistingTwinFast_(sheet, map, pairKey) {
-  const last = sheet.getLastRow();
-  const start = Math.max(2, last - IDEMP_SCAN_ROWS + 1);
-  const numRows = last - start + 1;
-  if (numRows <= 0) return false;
-  if ('helper' in map) {
-    const col = map['helper'].index + 1;
-    const rng = sheet.getRange(start, col, numRows, 1);
-    const hit = rng.createTextFinder(pairKey).matchEntireCell(true).findNext();
-    if (hit) return true;
-  }
-  if ('note' in map) {
-    const col = map['note'].index + 1;
-    const rng = sheet.getRange(start, col, numRows, 1);
-    const hit = rng.createTextFinder(pairKey).matchEntireCell(false).findNext();
-    if (hit) return true;
-  }
-  return false;
-}
-
-// ===== Add Transaction (UniqueID _out/_in; tanpa helper/pairKey) =====
-function getLastRowPointer_(sheetName) {
-  const props = PropertiesService.getUserProperties();
-  const key = 'lastRow_' + sheetName;
-  let last = Number(props.getProperty(key) || 0);
-  if (last <= 0) {
-    const sh = getSheet_(sheetName);
-    last = sh.getLastRow();
-    props.setProperty(key, last);
-  }
-  return last;
-}
-
-function updateLastRowPointer_(sheetName, newLastRow) {
-  PropertiesService.getUserProperties().setProperty('lastRow_' + sheetName, newLastRow);
-}
-
+// ===== Add Transaction =====
 function addTransaction(row) {
   try {
     const { sheet: sh, map } = assertSchemaV2_('Input',
@@ -430,56 +369,38 @@ function addTransaction(row) {
     );
     const now = new Date();
 
-    // --- Validasi Input Dasar ---
     if (!row.subcategory) throw new Error('Subcategory wajib diisi.');
     if (!row.wallet) throw new Error('Wallet wajib diisi.');
     const amount = Number(row.amount);
     if (!(amount > 0)) throw new Error('Amount harus > 0.');
 
-    // --- Ambil data & Cache ---
     const catMap = getCategoryMap_();
     const walMap = getWalletMap_();
-
-    // --- Normalisasi & info kategori ---
-    const subNorm = normalizeHeaderName_(row.subcategory);
     const cinfo = catMap[row.subcategory] || {};
+    const subNorm = normalizeHeaderName_(row.subcategory);
 
-    // --- Deteksi jenis transfer ---
     const isTransferType = (cinfo.TransactionType === 'Transfer') || (subNorm === 'transferout' || subNorm === 'transferin');
     const isTransferOut  = (subNorm === 'transferout') || (isTransferType && !!row.transferTo);
     const isTransferIn   = (subNorm === 'transferin');
 
-    // Validasi khusus Transfer-Out
     if (isTransferOut) {
       if (!row.transferTo) throw new Error('Transfer To wajib diisi untuk Transfer-Out.');
       if (row.transferTo === row.wallet) throw new Error('Dompet tujuan tidak boleh sama.');
     }
 
-    // --- Tentukan jenis transaksi & kategori ---
     const txType   = isTransferType ? 'Transfer' : (cinfo.TransactionType || 'Expense');
     const category = isTransferType ? 'Transfer' : (cinfo.Category || '');
-    const ratios   = cinfo.Ratios || '';
-
-    const winfo    = walMap[row.wallet] || {};
-    const owner    = winfo.WalletOwner || '';
-    const source   = winfo.WalletType || '';
-
-    const txDate   = row.date ? new Date(row.date) : now;
-
-    // --- Adjusted Amount ---
     const adjusted = isTransferOut ? -Math.abs(amount)
-                    : isTransferIn  ?  Math.abs(amount)
-                    : getAdjustedAmount(txType, row.subcategory, amount);
-
-    // --- Generate baseId & uniqueid ---
+                   : isTransferIn  ? Math.abs(amount)
+                   : (txType === 'Expense') ? -Math.abs(amount) : Math.abs(amount);
+    
     const baseId = Utilities.getUuid();
     const idOut  = baseId + '_out';
     const idIn   = baseId + '_in';
 
-    // --- Data baris utama ---
     const rowData = {
       [map['uniqueid'].name]: isTransferOut ? idOut : baseId,
-      [map['date'].name]: txDate,
+      [map['date'].name]: row.date ? new Date(row.date) : now,
       [map['transactiontype'].name]: txType,
       [map['wallet'].name]: row.wallet,
       [map['category'].name]: category,
@@ -487,48 +408,31 @@ function addTransaction(row) {
       [map['amount'].name]: amount,
       [map['adjustedamount'].name]: adjusted,
     };
-    if ('createdat' in map)       rowData[map['createdat'].name]       = now;
-    if ('updatedat' in map)       rowData[map['updatedat'].name]       = now;
-    if ('walletowner' in map)     rowData[map['walletowner'].name]     = owner;
-    if ('note' in map)            rowData[map['note'].name]            = row.note || '';
-    if ('description' in map)     rowData[map['description'].name]     = row.description || '';
-    if ('transferto' in map)      rowData[map['transferto'].name]      = row.transferTo || '';
-    if ('source' in map)          rowData[map['source'].name]          = source;
-    if ('ratios' in map)          rowData[map['ratios'].name]          = ratios;
-    if ('expensepurpose' in map)  rowData[map['expensepurpose'].name]  = row.expensePurpose || '';
+    if ('note' in map)           rowData[map['note'].name] = row.note || '';
+    if ('description' in map)    rowData[map['description'].name] = row.description || '';
+    if ('transferto' in map)     rowData[map['transferto'].name] = row.transferTo || '';
+    if ('expensepurpose' in map) rowData[map['expensepurpose'].name] = row.expensePurpose || '';
 
-    // --- Susun tulis ---
     const rowsToWrite = [];
     const headers = Object.values(map).sort((a,b)=>a.index-b.index).map(o=>o.name);
-    const mainRow = headers.map(h => h in rowData ? rowData[h] : '');
-    rowsToWrite.push(mainRow);
+    rowsToWrite.push(headers.map(h => h in rowData ? rowData[h] : ''));
 
-    // --- Otomatis buat twin untuk Transfer-Out ---
     if (isTransferOut && row.transferTo) {
-      const twinWinfo = walMap[row.transferTo] || {};
       const twin = { ...rowData };
-
       twin[map['uniqueid'].name]       = idIn;
       twin[map['wallet'].name]         = row.transferTo;
-      twin[map['subcategory'].name]    = 'Transfer-In';
+      twin[map['subcategory'].name]   = 'Transfer-In';
       twin[map['adjustedamount'].name] = Math.abs(amount);
-
-      if ('walletowner' in map) twin[map['walletowner'].name] = twinWinfo.WalletOwner || '';
-      if ('source' in map)      twin[map['source'].name]      = twinWinfo.WalletType || '';
-      if ('note' in map)        twin[map['note'].name]        = row.note || '';
-      if ('transferto' in map)  twin[map['transferto'].name]  = row.wallet;
-
-      const twinRow = headers.map(h => h in twin ? twin[h] : '');
-      rowsToWrite.push(twinRow);
+      if ('transferto' in map) twin[map['transferto'].name] = row.wallet;
+      rowsToWrite.push(headers.map(h => h in twin ? twin[h] : ''));
     }
 
-    // --- Tulis semua baris sekaligus pakai pointer cepat ---
     if (rowsToWrite.length > 0) {
-      let lastRow = getLastRowPointer_('Input');
-      const startRow = lastRow + 1;
-      sh.getRange(startRow, 1, rowsToWrite.length, headers.length).setValues(rowsToWrite);
-      updateLastRowPointer_('Input', startRow + rowsToWrite.length - 1);
+      sh.getRange(sh.getLastRow() + 1, 1, rowsToWrite.length, headers.length).setValues(rowsToWrite);
     }
+    
+    // Hapus semua cache laporan setelah transaksi baru berhasil
+    clearCacheByPrefix('report_');
 
     return { success: true, id: baseId };
   } catch (err) {
@@ -536,71 +440,71 @@ function addTransaction(row) {
   }
 }
 
-
-// ===== Reports =====
+// ===== Reports (Cached) =====
 function getBudgetSummary() {
-  // Ambil master kategori + budget per subcategory
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'report_budget';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) {
+    console.log('Mengambil Budget Summary dari CACHE');
+    return JSON.parse(cached);
+  }
+
+  console.log('Menjalankan kalkulasi Budget Summary dari SHEET');
   const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
   const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount']);
   const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-
   const c = k => getIndex_(cat.map, k, 'Category Setup');
   const i = k => getIndex_(inp.map, k, 'Input');
-
-  // Map subcategory -> {category, budget}
+  
   const budgetMap = {};
   cVals.forEach(r => {
     const sub = String(r[c('subcategory')] || '').trim();
     if (!sub) return;
     const catName = r[c('category')] || '';
-    const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map)
-      ? cat.map['budgetsubcategory'].index : -1;
+    const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
     const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
     budgetMap[sub] = { category: catName, budget };
   });
 
-  // Akumulasi spent per subcategory (hanya yang negatif/expense)
   const spentBySub = {};
   iVals.forEach(r => {
     const sub = String(r[i('subcategory')] || '').trim();
     if (!sub) return;
     const adj = Number(r[i('adjustedamount')] || 0);
     if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
-    // catName dari input dipakai fallback jika tidak ada di master
     if (!budgetMap[sub]) {
       budgetMap[sub] = { category: r[i('category')] || '', budget: 0 };
     }
   });
 
-  // Satukan jadi list baris per-subcategory
-  const subs = Array.from(new Set([
-    ...Object.keys(budgetMap),
-    ...Object.keys(spentBySub),
-  ]));
-
+  const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
   const rows = subs.map(sub => {
     const info = budgetMap[sub] || { category: '', budget: 0 };
     const spent = Number(spentBySub[sub] || 0);
     return {
-      category: info.category || '',
-      subcategory: sub,
-      spent,
-      budget: Number(info.budget || 0),
+      category: info.category || '', subcategory: sub,
+      spent, budget: Number(info.budget || 0),
       remaining: Number(info.budget || 0) + spent
     };
   });
-
-  // Urutkan: Category ASC, Subcategory ASC
   rows.sort((a,b) => (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
 
+  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
 }
 
-
-
 function getGoalsWithProgress() {
-  // Hitung saldo per wallet dari Input
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'report_goals';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) {
+    console.log('Mengambil Goals Progress dari CACHE');
+    return JSON.parse(cached);
+  }
+
+  console.log('Menjalankan kalkulasi Goals Progress dari SHEET');
   const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
   const i = k => getIndex_(inp.map, k, 'Input');
@@ -613,7 +517,6 @@ function getGoalsWithProgress() {
     balanceByWallet[w] = (balanceByWallet[w] || 0) + a;
   });
 
-  // Ambil daftar goals (WAJIB punya kolom "Goals")
   const goals = assertSchemaV2_('Goals Setup', ['goals']);
   const gVals = goals.sheet.getDataRange().getValues(); gVals.shift();
   const g = k => getIndex_(goals.map, k, 'Goals Setup');
@@ -621,25 +524,39 @@ function getGoalsWithProgress() {
   const hasNeeded = ('nominalneeded' in goals.map);
   const hasOwner  = ('goalowner' in goals.map);
 
-  // Hanya wallet yang tercantum pada kolom "Goals" yang dihitung
   const rows = [];
   gVals.forEach(r => {
     const goalName = String(r[g('goals')] || '').trim();
-    if (!goalName) return; // skip baris kosong
+    if (!goalName) return;
 
     const needed   = hasNeeded ? Number(r[g('nominalneeded')] || 0) : 0;
     const progress = Number(balanceByWallet[goalName] || 0);
     const completion = needed > 0 ? (progress / needed) : 0;
 
     rows.push({
-      goal: goalName,
-      owner: hasOwner ? r[g('goalowner')] : '',
-      needed,
-      progress,
-      completion
+      goal: goalName, owner: hasOwner ? r[g('goalowner')] : '',
+      needed, progress, completion
     });
   });
 
-  // Tidak ada fallback ke semua wallet — sesuai logika baru
+  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
+}
+
+// +++++ FUNGSI BARU YANG DITAMBAHKAN +++++
+/**
+ * Mengambil semua data yang diperlukan untuk inisialisasi aplikasi dalam satu panggilan.
+ */
+function getInitialData() {
+  // Panggilan ini akan sangat cepat karena semua fungsi di dalamnya sudah di-cache
+  const data = {
+    wallets: getWallets(),
+    categories: getCategories(),
+    transactions: getTransactions(),
+    notes: getDistinctNotes(25),
+    purposes: getExpensePurposes(200),
+    budgetSummary: getBudgetSummary(),
+    goalsProgress: getGoalsWithProgress()
+  };
+  return data;
 }
