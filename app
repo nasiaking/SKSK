@@ -327,9 +327,16 @@ function setActiveMaster(btn){
           <label class="col-span-1">Wallet
             <input name="wallet" class="mt-1 w-full border rounded p-2" required />
           </label>
+          
           <label class="col-span-1">Wallet Type
-            <input name="walletType" class="mt-1 w-full border rounded p-2" placeholder="Personal/Bisnis" />
+            <select id="walletTypeSel" name="walletType" class="mt-1 w-full border rounded p-2">
+              <option>Cash &amp; Bank</option>
+              <option>Liabilities</option>
+              <option>Saving</option>
+              <option>Other Asset</option>
+            </select>
           </label>
+
           <label class="col-span-1">Wallet Owner
             <select id="walletOwnerSel" name="walletOwner" class="mt-1 w-full border rounded p-2"></select>
           </label>
