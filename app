@@ -6,14 +6,14 @@
   let purposes = [];
   let txCache = [];
   let walletBalances = []; // [{wallet, balance, type}]
-  let _budgetCache = [];
+  let _budgetCache = [];   // dari backend (buat baca nilai budget per sub)
   let _goalsCache = [];
 
   // ======== ELEMENTS ========
-  const setupView = document.getElementById('setupView');
-  const dashboardView = document.getElementById('dashboardView');
-  const historyView   = document.getElementById('historyView');
-  const reportView    = document.getElementById('reportView');
+  const setupView      = document.getElementById('setupView');
+  const dashboardView  = document.getElementById('dashboardView');
+  const historyView    = document.getElementById('historyView');
+  const reportView     = document.getElementById('reportView');
 
   const btnTabDashboard = document.getElementById('btnTabDashboard');
   const btnTabHistory   = document.getElementById('btnTabHistory');
@@ -43,18 +43,8 @@
 
   // Dashboard widgets
   const walletBalancesWrap = document.getElementById('walletBalancesWrap');
-  const lastTxWrap = document.getElementById('lastTxWrap');
   const budgetOverviewWrap = document.getElementById('budgetOverviewWrap');
-  const btnGotoHistory = document.getElementById('btnGotoHistory');
-  const btnRefreshHeader = document.getElementById('btnRefreshHeader');
-  const netWorthTotal = document.getElementById('netWorthTotal'); // mungkin belum ada; skrip handle otomatis
-
-  // Setup master forms
-  const masterFormWrap = document.getElementById('masterFormWrap');
-  const btnOpenAccount  = document.getElementById('btnOpenAccount');
-  const btnOpenWallet   = document.getElementById('btnOpenWallet');
-  const btnOpenCategory = document.getElementById('btnOpenCategory');
-  const btnOpenGoals    = document.getElementById('btnOpenGoals');
+  const btnRefreshHeader   = document.getElementById('btnRefreshHeader');
 
   // ======== Toast ========
   const toast = document.createElement('div');
@@ -74,9 +64,8 @@
   btnTabDashboard?.addEventListener('click', () => { showOnly(dashboardView); });
   btnTabHistory  ?.addEventListener('click', () => { showOnly(historyView); renderTransactions(); });
   btnTabReport   ?.addEventListener('click', () => { showOnly(reportView); renderBudgetSummary(_budgetCache); renderGoalsProgress(_goalsCache); });
-  btnSetupOpen   ?.addEventListener('click', () => { showOnly(setupView); masterFormWrap.innerHTML=''; });
+  btnSetupOpen   ?.addEventListener('click', () => { showOnly(setupView); });
 
-  btnGotoHistory?.addEventListener('click', () => { btnTabHistory?.click(); });
   btnRefreshHeader?.addEventListener('click', () => { bootstrap(); showToast('✅ Data diperbarui'); });
 
   // ======== SETUP: Buat DB ========
@@ -125,6 +114,7 @@
       renderBudgetSummary(_budgetCache);
       renderGoalsProgress(_goalsCache);
       renderDashboardCards();
+      renderBudgetOverview();
     });
   }
 
@@ -230,7 +220,6 @@
   function renderBudgetSummary(list) {
     if (!budgetTbody) return;
     budgetTbody.innerHTML = '';
-    // pastikan transfer tidak tampil, bila backend lama masih menyertakan
     const rows = (list || []).filter(r => String(r.category||'').toLowerCase() !== 'transfer');
     rows.forEach(r => {
       const tr = document.createElement('tr');
@@ -263,125 +252,212 @@
 
   // ======== DASHBOARD ========
   function renderDashboard(){
+    // Sembunyikan section "5 Transaksi Terakhir" kalau masih ada di index
+    const lastTxSection = document.getElementById('lastTxWrap')?.closest('section');
+    if (lastTxSection) lastTxSection.classList.add('hidden');
+
     renderDashboardCards();
-    renderLastTx();
     renderBudgetOverview();
     refreshTransferUI();
   }
 
-  // Buat/atur header Net Worth secara otomatis bila index belum diubah
+  // Siapkan header Net Worth: judul + angka inline, dan spacing rapih
   function ensureNetWorthHeader(){
-    if (!walletBalancesWrap) return { totalEl: null, titleEl: null };
+    if (!walletBalancesWrap) return { inlineEl: null, h2: null, section: null };
     const section = walletBalancesWrap.closest('section');
-    if (!section) return { totalEl: null, titleEl: null };
+    if (!section) return { inlineEl: null, h2: null, section: null };
 
-    // Jika sudah ada elemen total, gunakan itu
-    let totalEl = section.querySelector('#netWorthTotal');
-    let titleEl = section.querySelector('h2');
-
-    // Jika belum ada layout fleksibel, bentuk sekarang
-    const existingFlex = section.querySelector('#netWorthHeaderWrap');
-    if (!existingFlex && titleEl) {
-      const flex = document.createElement('div');
-      flex.id = 'netWorthHeaderWrap';
-      flex.className = 'flex items-center justify-between mb-3';
-      titleEl.replaceWith(flex);
-      titleEl.classList.remove('mb-3');
-      flex.appendChild(titleEl);
-      totalEl = document.createElement('div');
-      totalEl.id = 'netWorthTotal';
-      totalEl.className = 'text-lg font-semibold';
-      flex.appendChild(totalEl);
+    let h2 = section.querySelector('h2');
+    if (!h2){
+      h2 = document.createElement('h2');
+      h2.className = 'text-lg font-semibold mb-3';
+      h2.textContent = 'Net Worth';
+      section.insertBefore(h2, walletBalancesWrap);
+    } else {
+      if (!h2.className.includes('mb-3')) h2.classList.add('mb-3');
+      h2.textContent = 'Net Worth';
     }
 
-    // Jika total belum ada karena index lama, buat elemen kecil di kanan atas
-    if (!totalEl) {
-      totalEl = document.createElement('div');
-      totalEl.id = 'netWorthTotal';
-      totalEl.className = 'text-lg font-semibold';
-      // letakkan sebelum grid balance
-      section.insertBefore(totalEl, walletBalancesWrap);
+    let inlineEl = h2.querySelector('#netWorthInline');
+    if (!inlineEl){
+      inlineEl = document.createElement('span');
+      inlineEl.id = 'netWorthInline';
+      inlineEl.className = 'ml-2';
+      h2.appendChild(inlineEl);
     }
-    return { totalEl, titleEl: section.querySelector('h2') };
+
+    return { inlineEl, h2, section };
   }
 
+  // ===== Wallet Groups (header full-width, body grid di bawah) =====
   function renderDashboardCards(){
     if (!walletBalancesWrap) return;
 
-    walletBalancesWrap.innerHTML = '';
-    const sorted = (walletBalances||[]).slice().sort((a,b)=>a.wallet.localeCompare(b.wallet));
+    const { inlineEl } = ensureNetWorthHeader();
 
-    // siapkan header Net Worth (judul + total)
-    const { totalEl, titleEl } = ensureNetWorthHeader();
-    if (titleEl) titleEl.textContent = 'Net Worth';
+    // Pastikan container vertikal (bukan grid seluruhnya)
+    walletBalancesWrap.className = 'space-y-4 mt-2';
 
-    if (!sorted.length) {
-      walletBalancesWrap.innerHTML = `<div class="text-sm text-slate-500">Belum ada saldo.</div>`;
-      if (totalEl){ totalEl.textContent = formatMoney(0); totalEl.classList.remove('text-rose-700','text-emerald-700'); }
-      return;
-    }
+    const ORDER = ['Cash & Bank','Savings/Investments','Other Asset','Liabilities'];
+    const groups = { 'Cash & Bank':[], 'Savings/Investments':[], 'Other Asset':[], 'Liabilities':[] };
 
-    // hitung total net worth
-    let net = 0;
-    sorted.forEach(w => {
-      let val = Number(w.balance || 0);
-      // guard opsional: kalau liabilities tercatat positif, balikkan tandanya agar net worth benar
-      if (String(w.type||'') === 'Liabilities' && val > 0) val = -val;
-      net += val;
-
-      const el = document.createElement('div');
-      const neg = Number(w.balance||0) < 0;
-      el.className = 'border rounded p-3 flex items-center justify-between';
-      el.innerHTML = `
-        <div>
-          <div class="font-medium">${escapeHtml(w.wallet)}</div>
-          <div class="text-xs text-slate-500">${escapeHtml(w.type || '')}</div>
-        </div>
-        <div class="${neg ? 'text-rose-600' : 'text-emerald-600'} font-semibold">${formatMoney(w.balance || 0)}</div>
-      `;
-      walletBalancesWrap.appendChild(el);
+    (walletBalances||[]).forEach(w => {
+      const t = ORDER.includes(w.type) ? w.type : 'Other Asset';
+      groups[t].push(w);
     });
 
-    if (totalEl){
-      totalEl.textContent = formatMoney(net);
-      totalEl.classList.toggle('text-rose-700', net < 0);
-      totalEl.classList.toggle('text-emerald-700', net >= 0);
+    // Hitung Net Worth (liability positif dianggap utang → negatif)
+    let net = 0;
+    Object.entries(groups).forEach(([type, arr]) => {
+      arr.forEach(w => {
+        let v = Number(w.balance || 0);
+        if (type === 'Liabilities' && v > 0) v = -v;
+        net += v;
+      });
+    });
+
+    if (inlineEl){
+      inlineEl.textContent = formatMoney(net);
+      inlineEl.classList.remove('text-rose-700','text-emerald-700','text-slate-600');
+      inlineEl.classList.add(net < 0 ? 'text-rose-700' : 'text-emerald-700');
     }
+
+    // Render tiap grup
+    walletBalancesWrap.innerHTML = '';
+    ORDER.forEach(type => {
+      const arr = (groups[type] || []).slice().sort((a,b)=> a.wallet.localeCompare(b.wallet));
+
+      // subtotal grup (pakai guard sama utk Liabilities)
+      let subtotal = 0;
+      arr.forEach(w => {
+        let v = Number(w.balance || 0);
+        if (type === 'Liabilities' && v > 0) v = -v;
+        subtotal += v;
+      });
+      const subCls = subtotal < 0 ? 'text-rose-600' : (subtotal > 0 ? 'text-emerald-600' : 'text-slate-500');
+
+      // container grup
+      const g = document.createElement('div');
+
+      // header (klik = collapse)
+      const hdr = document.createElement('button');
+      hdr.type = 'button';
+      hdr.className = 'w-full flex items-center justify-between text-sm font-medium text-slate-700';
+      hdr.innerHTML = `
+        <span class="inline-flex items-center gap-2">
+          <span class="inline-block rotate-0 transition-transform" aria-hidden="true">▾</span>
+          ${escapeHtml(type)}
+        </span>
+        <span class="${subCls}">${formatMoney(subtotal)}</span>
+      `;
+      g.appendChild(hdr);
+
+      // body grid kartu
+      const body = document.createElement('div');
+      body.className = 'grid grid-cols-1 md:grid-cols-2 gap-3 mt-2';
+      if (!arr.length){
+        const empty = document.createElement('div');
+        empty.className = 'text-xs text-slate-500 border rounded p-3';
+        empty.textContent = '—';
+        body.appendChild(empty);
+      } else {
+        arr.forEach(w => {
+          const val = Number(w.balance || 0);
+          const cls = (val < 0) ? 'text-rose-600' : (val > 0) ? 'text-emerald-600' : 'text-slate-500';
+          const card = document.createElement('div');
+          card.className = 'border rounded p-3 flex items-center justify-between';
+          card.innerHTML = `
+            <div class="font-medium">${escapeHtml(w.wallet)}</div>
+            <div class="${cls} font-semibold">${formatMoney(val)}</div>
+          `;
+          body.appendChild(card);
+        });
+      }
+      g.appendChild(body);
+
+      // collapse toggle (tanpa localStorage)
+      hdr.addEventListener('click', () => {
+        const caret = hdr.querySelector('span[aria-hidden="true"]');
+        const isOpen = !body.classList.contains('hidden');
+        if (isOpen) {
+          body.classList.add('hidden');
+          caret.style.transform = 'rotate(-90deg)';
+        } else {
+          body.classList.remove('hidden');
+          caret.style.transform = 'rotate(0deg)';
+        }
+      });
+
+      walletBalancesWrap.appendChild(g);
+    });
   }
 
-  function renderLastTx(){
-    if (!lastTxWrap) return;
-    lastTxWrap.innerHTML = '';
-    const rows = (txCache||[]).slice(-5).reverse();
-    if (!rows.length) { lastTxWrap.innerHTML = `<div class="text-sm text-slate-500">Belum ada transaksi.</div>`; return; }
-    rows.forEach(tx => {
-      const amt = Number(tx.AdjustedAmount || 0);
-      const el = document.createElement('div');
-      el.className = 'border rounded p-2 text-sm flex items-center justify-between';
-      el.innerHTML = `
-        <div>
-          <div class="font-medium">${safeDate(tx.Date)} — ${escapeHtml(tx.Subcategory)} · ${escapeHtml(tx.Wallet)}</div>
-          <div class="text-slate-600">${escapeHtml(tx.Note || tx.Description || '')}</div>
-        </div>
-        <div class="text-right ${amt < 0 ? 'text-rose-600' : 'text-emerald-600'}">${formatMoney(amt)}</div>
-      `;
-      lastTxWrap.appendChild(el);
+  // ===== Budget Overview: MTD, hanya budget>0, skip Transfer =====
+  function computeBudgetMTD(){
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end   = new Date(now.getFullYear(), now.getMonth()+1, 1);
+
+    // Spent per sub (positif sebagai nilai pakai)
+    const spentMap = {};
+    (txCache||[]).forEach(tx => {
+      const d = new Date(tx.Date);
+      if (!(d instanceof Date) || isNaN(d)) return;
+      if (d < start || d >= end) return;
+      if ((String(tx.Category||'').toLowerCase()) === 'transfer') return;
+      const adj = Number(tx.AdjustedAmount || 0);
+      if (adj < 0) {
+        const sub = String(tx.Subcategory || '').trim();
+        if (!sub) return;
+        spentMap[sub] = (spentMap[sub] || 0) + (-adj); // simpan sbg positif
+      }
     });
+
+    // Budget per sub dari cache backend (ambil hanya yang budget > 0 & bukan Transfer)
+    const budgets = {};
+    (_budgetCache||[]).forEach(r => {
+      if (String(r.category||'').toLowerCase() === 'transfer') return;
+      const b = Number(r.budget || 0);
+      if (b > 0) budgets[r.subcategory] = { budget: b, category: r.category };
+    });
+
+    const rows = Object.keys(budgets).map(sub => {
+      const b = budgets[sub].budget;
+      const cat = budgets[sub].category || '';
+      const spent = Number(spentMap[sub] || 0);
+      const remaining = b - spent;
+      return { category: cat, subcategory: sub, budget: b, spent, remaining };
+    });
+
+    // Ada spending tapi belum ada budget?
+    const missingBudget = Object.keys(spentMap).some(sub => !(sub in budgets));
+
+    rows.sort((a,b)=> (a.remaining||0) - (b.remaining||0));
+    return { rows: rows.slice(0,5), missingBudget };
   }
 
   function renderBudgetOverview(){
     if (!budgetOverviewWrap) return;
     budgetOverviewWrap.innerHTML = '';
-    // pastikan transfer tidak tampil, walau backend lama masih menyertakan
-    const base = (_budgetCache||[]).filter(r => (String(r.category||'').toLowerCase() !== 'transfer'));
-    // ambil 5 baris paling “kritis”
-    const rows = base.slice().sort((a,b)=> (a.remaining||0) - (b.remaining||0)).slice(0,5);
-    if (!rows.length) { budgetOverviewWrap.innerHTML = `<div class="text-sm text-slate-500">Tidak ada data budget.</div>`; return; }
+
+    const { rows, missingBudget } = computeBudgetMTD();
+    if (!rows.length){
+      budgetOverviewWrap.innerHTML = `<div class="text-sm text-slate-500">Tidak ada data budget bulan ini.</div>`;
+      if (missingBudget){
+        const note = document.createElement('div');
+        note.className = 'text-xs text-slate-500 mt-2';
+        note.textContent = 'Sebagian subkategori punya pengeluaran tetapi belum disetel budget-nya.';
+        budgetOverviewWrap.appendChild(note);
+      }
+      return;
+    }
+
     rows.forEach(r => {
       const total = Number(r.budget||0);
-      const spent = Math.abs(Number(r.spent||0)); // spent negatif → ambil abs
+      const spent = Number(r.spent||0);
       const pct = total > 0 ? Math.min(1, spent/total) : 0;
       const item = document.createElement('div');
+      item.className = 'mb-2';
       item.innerHTML = `
         <div class="flex justify-between text-sm mb-1">
           <div class="font-medium">${escapeHtml(r.subcategory || '')}</div>
@@ -393,9 +469,22 @@
       `;
       budgetOverviewWrap.appendChild(item);
     });
+
+    if (missingBudget){
+      const note = document.createElement('div');
+      note.className = 'text-xs text-slate-500 mt-2';
+      note.textContent = 'Sebagian subkategori punya pengeluaran tetapi belum disetel budget-nya.';
+      budgetOverviewWrap.appendChild(note);
+    }
   }
 
   // ======== MASTER VIEW SWITCHER (TAB) ========
+  const masterFormWrap = document.getElementById('masterFormWrap');
+  const btnOpenAccount  = document.getElementById('btnOpenAccount');
+  const btnOpenWallet   = document.getElementById('btnOpenWallet');
+  const btnOpenCategory = document.getElementById('btnOpenCategory');
+  const btnOpenGoals    = document.getElementById('btnOpenGoals');
+
   function renderIntoMaster(html) {
     masterFormWrap.innerHTML = '';
     const wrapper = document.createElement('div');
@@ -598,7 +687,7 @@
       msg.textContent = 'Menyimpan...';
       google.script.run.withSuccessHandler(() => {
         msg.textContent = 'Tersimpan.'; f.reset();
-        // Otomatis buat wallet untuk goal ini
+        // Opsional (tetap): auto-buat wallet utk goal
         const walletPayload = { wallet: payload.goal, walletType: 'Other Asset', walletOwner: payload.goalOwner || '' };
         google.script.run.createWallet(walletPayload);
         bootstrap(); showToast('✅ Data diperbarui');
