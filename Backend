@@ -317,30 +317,34 @@ function getCategories() {
 
 
 function getTransactions() {
+  // Tidak lagi mewajibkan 'uniqueid' agar data lama tetap tampil
   const req = ['date','subcategory','category','wallet','amount','adjustedamount'];
   const { sheet, map } = assertSchemaV2_('Input', req);
   const vals = sheet.getDataRange().getValues(); vals.shift();
   const idx = k => getIndex_(map, k, 'Input');
-  const hasUID = ('uniqueid' in map);
 
-  const rows = [];
-  vals.forEach((r, i) => {
-    const hasAny = r[idx('date')] || r[idx('wallet')] || r[idx('subcategory')] || r[idx('amount')];
-    if (!hasAny) return;
-    const uid = hasUID ? r[idx('uniqueid')] : `LEGACY_${(i+2)}`; // row number as stable ID for legacy
-    rows.push({
+  const hasUID = ('uniqueid' in map);
+  const out = [];
+
+  for (let r = 0; r < vals.length; r++) {
+    const row = vals[r];
+    // Skip baris kosong (tanpa tanggal & tanpa wallet)
+    if (!row[idx('date')] && !row[idx('wallet')]) continue;
+
+    const uid = hasUID && row[map['uniqueid'].index] ? row[map['uniqueid'].index] : `LEGACY_${r+2}`;
+    out.push({
       UniqueID: uid,
-      Date: r[idx('date')],
-      Subcategory: r[idx('subcategory')],
-      Category: r[idx('category')],
-      Wallet: r[idx('wallet')],
-      Amount: r[idx('amount')],
-      AdjustedAmount: r[idx('adjustedamount')],
-      Note: ('note' in map) ? r[map['note'].index] : '',
-      Description: ('description' in map) ? r[map['description'].index] : '',
+      Date: row[idx('date')],
+      Subcategory: row[idx('subcategory')],
+      Category: row[idx('category')],
+      Wallet: row[idx('wallet')],
+      Amount: row[idx('amount')],
+      AdjustedAmount: row[idx('adjustedamount')],
+      Note: ('note' in map) ? row[map['note'].index] : '',
+      Description: ('description' in map) ? row[map['description'].index] : '',
     });
-  });
-  return rows;
+  }
+  return out;
 }
 
 
