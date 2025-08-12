@@ -6,21 +6,25 @@
   <title>SatukasSatukas</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="manifest" href="?asset=manifest&v=20250812">
-  </head>
+</head>
 <body class="bg-slate-100 text-slate-900">
 
   <header class="sticky top-0 z-10 bg-gradient-to-r from-emerald-500 to-sky-500 text-white shadow-md">
-    <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
       <h1 class="text-xl font-semibold tracking-wide">SatukasSatukas</h1>
       <nav class="flex items-center gap-2">
-        <button id="btnHome" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Main</button>
-        <button id="btnSetupOpen" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Setup</button>
-        <button id="btnInstall" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition hidden">Install</button>
+        <button id="btnTabDashboard" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Dashboard</button>
+        <button id="btnTabHistory"   class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Riwayat</button>
+        <button id="btnTabReport"    class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Laporan</button>
+        <button id="btnSetupOpen"    class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Setup</button>
+        <button id="btnInstall"      class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition hidden">Install</button>
       </nav>
     </div>
   </header>
-  <main class="max-w-2xl mx-auto px-4 py-6">
 
+  <main class="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- ==== SETUP ==== -->
     <section id="setupView" class="hidden">
       <div class="bg-white border rounded-lg shadow p-6 space-y-6">
         <h2 class="text-xl font-semibold border-b pb-2">Setup Data</h2>
@@ -47,9 +51,15 @@
         </div>
       </div>
     </section>
-    <section id="appView" class="space-y-6 hidden">
+
+    <!-- ==== DASHBOARD ==== -->
+    <section id="dashboardView" class="hidden space-y-6">
+      <!-- Quick Add -->
       <section class="bg-white border rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Tambah Transaksi Baru</h2>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">Tambah Transaksi Cepat</h2>
+          <button id="btnRefreshHeader" class="text-sm px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700">Refresh</button>
+        </div>
         <form id="txForm" class="grid grid-cols-2 gap-4">
           <div class="col-span-1">
             <label for="date" class="block text-sm font-medium text-slate-700">Tanggal</label>
@@ -67,12 +77,10 @@
             <label for="amount" class="block text-sm font-medium text-slate-700">Amount</label>
             <input id="amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border rounded p-2" required>
           </div>
-
           <div id="transferWrap" class="col-span-2 hidden">
             <label for="transferTo" class="block text-sm font-medium text-slate-700">Transfer Ke</label>
             <select id="transferTo" class="mt-1 w-full border rounded p-2"></select>
           </div>
-
           <div class="col-span-2">
             <label for="expensePurpose" class="block text-sm font-medium text-slate-700">Expense For</label>
             <select id="expensePurpose" class="mt-1 w-full border rounded p-2"></select>
@@ -86,46 +94,75 @@
             <label for="description" class="block text-sm font-medium text-slate-700">Description (Opsional)</label>
             <input id="description" type="text" class="mt-1 w-full border rounded p-2">
           </div>
-
           <div class="col-span-2 flex justify-end">
             <button id="btnSubmit" type="submit" class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50">Simpan</button>
           </div>
         </form>
       </section>
 
+      <!-- Wallet Balances -->
       <section class="bg-white border rounded-lg shadow p-4">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">Riwayat</h2>
-          <input id="search" placeholder="Cari transaksi..." class="border rounded p-2 text-sm">
+          <h2 class="text-lg font-semibold">Net Worth</h2>
+          <div id="netWorthTotal" class="text-lg font-semibold text-emerald-700">Rp 0</div>
         </div>
-        <div id="txList" class="space-y-2 max-h-96 overflow-y-auto"></div>
+        <div id="walletBalancesWrap" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+      </section>
+
+      <!-- Last Transactions -->
+      <section class="bg-white border rounded-lg shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">5 Transaksi Terakhir</h2>
+          <button id="btnGotoHistory" class="text-sm text-emerald-700 hover:underline">Lihat semua →</button>
+        </div>
+        <div id="lastTxWrap" class="space-y-2"></div>
+      </section>
+
+      <!-- Budget Overview -->
+      <section class="bg-white border rounded-lg shadow p-4">
+        <h2 class="text-lg font-semibold mb-3">Budget Overview</h2>
+        <div id="budgetOverviewWrap" class="space-y-2"></div>
+      </section>
+    </section>
+
+    <!-- ==== RIWAYAT ==== -->
+    <section id="historyView" class="hidden">
+      <section class="bg-white border rounded-lg shadow p-4">
+        <div class="flex items-center justify-between mb-3 gap-2">
+          <h2 class="text-lg font-semibold">Riwayat</h2>
+          <div class="flex items-center gap-2">
+            <input id="search" placeholder="Cari transaksi..." class="border rounded p-2 text-sm">
+          </div>
+        </div>
+        <div id="txList" class="space-y-2 max-h-[70vh] overflow-y-auto"></div>
+      </section>
+    </section>
+
+    <!-- ==== LAPORAN ==== -->
+    <section id="reportView" class="hidden">
+      <section class="bg-white border rounded-lg shadow p-4">
+        <h2 class="text-lg font-semibold mb-3">Budget Summary</h2>
+        <table class="w-full text-sm border">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="p-2 text-left font-semibold w-[30%]">Category</th>
+              <th class="p-2 text-left font-semibold w-[30%]">Subcategory</th>
+              <th class="p-2 text-right font-semibold w-[20%]">Spent</th>
+              <th class="p-2 text-right font-semibold w-[20%]">Remaining</th>
+            </tr>
+          </thead>
+          <tbody id="budgetTbody"></tbody>
+        </table>
       </section>
 
       <section class="bg-white border rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Laporan</h2>
-        <div class="grid grid-cols-1 gap-6">
-          <div>
-            <h3 class="font-medium mb-2">Budget Summary</h3>
-            <table class="w-full text-sm border">
-              <thead class="bg-slate-50">
-                <tr>
-                  <th class="p-2 text-left font-semibold w-[30%]">Category</th>
-                  <th class="p-2 text-left font-semibold w-[30%]">Subcategory</th>
-                  <th class="p-2 text-right font-semibold w-[20%]">Spent</th>
-                  <th class="p-2 text-right font-semibold w-[20%]">Remaining</th>
-                </tr>
-              </thead>
-              <tbody id="budgetTbody"></tbody>
-            </table>
-          </div>
-          <div>
-            <h3 class="font-medium mb-2">Goals Progress</h3>
-            <div id="goalsWrap" class="space-y-3"></div>
-          </div>
-        </div>
+        <h2 class="text-lg font-semibold mb-3">Goals Progress</h2>
+        <div id="goalsWrap" class="space-y-3"></div>
       </section>
     </section>
-    </main>
+
+  </main>
+
   <?!= HtmlService.createHtmlOutputFromFile('app').getContent(); ?>
 
   <script>
@@ -153,5 +190,5 @@
       btnInstall.classList.add('hidden');
     });
   </script>
-  </body>
+</body>
 </html>
