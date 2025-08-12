@@ -41,10 +41,17 @@
   const btnOpenGoals    = document.getElementById('btnOpenGoals');
 
   // ======== VIEW HELPERS ========
-  function showSetup(){ setupView.classList.remove('hidden'); appView.classList.add('hidden'); }
-  function showApp(){   setupView.classList.add('hidden');   appView.classList.remove('hidden'); }
+  function showSetup(){
+    setupView.classList.remove('hidden');
+    appView.classList.add('hidden');
+    // bersihkan area master & reset highlight tombol
+    masterFormWrap.innerHTML = '';
+    [btnOpenAccount, btnOpenWallet, btnOpenCategory, btnOpenGoals]
+      .forEach(b => b.classList.remove('bg-slate-800','text-white'));
+  }
+  function showApp(){ setupView.classList.add('hidden'); appView.classList.remove('hidden'); }
 
-  btnSetupOpen.addEventListener('click', () => { showSetup(); });
+  btnSetupOpen.addEventListener('click', showSetup);
   btnHome.addEventListener('click', showApp);
 
   // ======== SETUP: Buat DB ========
@@ -199,45 +206,83 @@
 
   // ======== LAPORAN ========
   function loadReports() {
+    // Budget Summary: Category + Subcategory
     gs('getBudgetSummary').then(list => {
       budgetTbody.innerHTML = '';
-      (list||[]).forEach(r => {
+      (list || []).forEach(r => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="p-2">${escapeHtml(r.category||'')}</td>
-          <td class="p-2 text-right">${formatMoney(r.spent||0)}</td>
-          <td class="p-2 text-right">${formatMoney(r.remaining||0)}</td>`;
+          <td class="p-2">${escapeHtml(r.category || '')}</td>
+          <td class="p-2">${escapeHtml(r.subcategory || '')}</td>
+          <td class="p-2 text-right">${formatMoney(r.spent || 0)}</td>
+          <td class="p-2 text-right">${formatMoney(r.remaining || 0)}</td>
+        `;
         budgetTbody.appendChild(tr);
       });
-    }).catch(()=>{ budgetTbody.innerHTML=''; });
+    }).catch(() => { budgetTbody.innerHTML = ''; });
 
+    // Goals Progress
     gs('getGoalsWithProgress').then(list => {
       goalsWrap.innerHTML = '';
-      (list||[]).forEach(g => {
-        const pct = Math.max(0, Math.min(1, Number(g.completion||0)));
+      (list || []).forEach(g => {
+        const pct = Math.max(0, Math.min(1, Number(g.completion || 0)));
         const item = document.createElement('div');
         item.innerHTML = `
           <div class="flex justify-between text-sm">
-            <div class="font-medium">${escapeHtml(g.goal||'')}</div>
-            <div>${formatMoney(g.progress||0)} / ${formatMoney(g.needed||0)}</div>
+            <div class="font-medium">${escapeHtml(g.goal || '')}</div>
+            <div>${formatMoney(g.progress || 0)} / ${formatMoney(g.needed || 0)}</div>
           </div>
           <div class="w-full bg-slate-200 rounded h-2 overflow-hidden">
-            <div class="bg-emerald-500 h-2" style="width:${(pct*100).toFixed(0)}%"></div>
+            <div class="bg-emerald-500 h-2" style="width:${(pct * 100).toFixed(0)}%"></div>
           </div>`;
         goalsWrap.appendChild(item);
       });
-    }).catch(()=>{ goalsWrap.innerHTML=''; });
+    }).catch(() => { goalsWrap.innerHTML = ''; });
   }
 
-  // ======== MASTER SETUP: tombol -> form dinamis (urutan: Account, Wallet, Category, Goals) ========
-  btnOpenAccount .addEventListener('click', renderAccountForm);
-  btnOpenWallet  .addEventListener('click', renderWalletForm);
-  btnOpenCategory.addEventListener('click', renderCategoryForm);
-  btnOpenGoals   .addEventListener('click', renderGoalsForm);
+  // ======== MASTER VIEW SWITCHER (TAB) ========
+  function renderIntoMaster(html) {
+    masterFormWrap.innerHTML = '';                         // kosongkan area form
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html.trim();
+    masterFormWrap.appendChild(wrapper.firstElementChild); // taruh satu form saja
+  }
+// ======== MASTER TAB STATE ========
+const MASTER_BTNS = [btnOpenAccount, btnOpenWallet, btnOpenCategory, btnOpenGoals];
+
+function setActiveMaster(btn){
+  MASTER_BTNS.forEach(b => {
+    b.classList.remove(
+      'font-semibold','underline','decoration-white','decoration-[3px]','underline-offset-8'
+    );
+    b.classList.add('text-white'); // pastikan semua standby font putih
+    b.setAttribute('aria-selected','false');
+  });
+
+  btn.classList.add(
+    'font-semibold','underline','decoration-white','decoration-[3px]','underline-offset-8','text-white'
+  );
+  btn.setAttribute('aria-selected','true');
+}
+
+
+  function openMaster(section){
+    switch(section){
+      case 'account':  renderAccountForm();  setActiveMaster(btnOpenAccount);  break;
+      case 'wallet':   renderWalletForm();   setActiveMaster(btnOpenWallet);   break;
+      case 'category': renderCategoryForm(); setActiveMaster(btnOpenCategory); break;
+      case 'goals':    renderGoalsForm();    setActiveMaster(btnOpenGoals);    break;
+    }
+  }
+
+  btnOpenAccount .addEventListener('click', () => openMaster('account'));
+  btnOpenWallet  .addEventListener('click', () => openMaster('wallet'));
+  btnOpenCategory.addEventListener('click', () => openMaster('category'));
+  btnOpenGoals   .addEventListener('click', () => openMaster('goals'));
 
   // ——— Account (Expense Purpose) — tambah baru
   function renderAccountForm() {
-    insertOnce('accountForm', `
+    renderIntoMaster(`
       <div id="accountForm" class="border rounded p-3">
         <h4 class="font-medium mb-2">Tambah Expense Purpose</h4>
         <form id="fAccount" class="grid grid-cols-2 gap-3">
@@ -262,7 +307,7 @@
         gs('getExpensePurposes', 200).then(list => {
           purposes = list || [];
           fillSelect(expSel, purposes); // form transaksi
-          // refresh owner dropdown di Wallet & Goals form jika ada
+          // refresh owner dropdown di Wallet & Goals form bila aktif
           const walletOwnerSel = document.getElementById('walletOwnerSel');
           if (walletOwnerSel) fillSelect(walletOwnerSel, purposes);
           const goalOwnerSel = document.getElementById('goalOwnerSel');
@@ -275,7 +320,7 @@
 
   // ——— Wallet — tambah baru (Owner dari Expense Purpose)
   function renderWalletForm() {
-    insertOnce('walletForm', `
+    renderIntoMaster(`
       <div id="walletForm" class="border rounded p-3">
         <h4 class="font-medium mb-2">Tambah Wallet</h4>
         <form id="fWallet" class="grid grid-cols-3 gap-3">
@@ -319,7 +364,7 @@
 
   // ——— Category — pilih kategori yang sudah ada atau Tambah Baru…
   function renderCategoryForm() {
-    insertOnce('categoryForm', `
+    renderIntoMaster(`
       <div id="categoryForm" class="border rounded p-3">
         <h4 class="font-medium mb-2">Tambah Category/Subcategory</h4>
         <form id="fCategory" class="grid grid-cols-3 gap-3">
@@ -405,7 +450,7 @@
 
   // ——— Goals — Owner dari Expense Purpose
   function renderGoalsForm() {
-    insertOnce('goalsForm', `
+    renderIntoMaster(`
       <div id="goalsForm" class="border rounded p-3">
         <h4 class="font-medium mb-2">Tambah Goal</h4>
         <form id="fGoal" class="grid grid-cols-3 gap-3">
@@ -442,15 +487,6 @@
       }).withFailureHandler(err => { msg.textContent = err?.message || 'Gagal.'; })
         .createGoal(payload);
     };
-  }
-
-  // Utility: sisipkan form sekali saja (kalau belum ada)
-  function insertOnce(id, html) {
-    if (!document.getElementById(id)) {
-      const wrapper = document.createElement('div');
-      wrapper.innerHTML = html;
-      masterFormWrap.appendChild(wrapper.firstElementChild);
-    }
   }
 
   // ======== START ========
