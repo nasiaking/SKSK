@@ -1,33 +1,54 @@
-// SKSK PWA SW v0.7.1
-const CACHE_NAME = 'sksk-shell-v3';
-const urlsToCache = ['.', '?asset=manifest&v=20250812'];
+// SKSK PWA SW v0.8.0 - Stale-While-Revalidate Strategy
+const CACHE_NAME = 'sksk-shell-v4';
+// Cache a minimal shell for instant loading
+const urlsToCache = [
+  '.', // The main HTML file
+  '?asset=manifest&v=20250812'
+];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(urlsToCache)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(urlsToCache))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil((async () => {
-    const names = await caches.keys();
-    await Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)));
-    await self.clients.claim();
-  })());
+  e.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.filter(name => name !== CACHE_NAME)
+                  .map(name => caches.delete(name))
+      );
+    }).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  // --- OPTIMIZATION: Stale-While-Revalidate Strategy ---
+  // Always respond from the cache first for speed, then update the cache from the network.
+  // This is ideal for non-critical app shell and data.
   e.respondWith(
-    fetch(req).then(res => {
-      try { if (res && res.status === 200 && res.type === 'basic') caches.open(CACHE_NAME).then(c => c.put(req, res.clone())); } catch(_) {}
-      return res;
-    }).catch(async () => {
-      const cached = await caches.match(req, { ignoreSearch: false });
-      if (cached) return cached;
-      if (req.mode === 'navigate') {
-        const shell = await caches.match('.', { ignoreSearch: true });
-        if (shell) return shell;
-      }
-      return Response.error();
+    caches.match(req).then(cachedResponse => {
+      // 1. Return from cache immediately if available
+      const fetchPromise = fetch(req).then(networkResponse => {
+        // 2. Update the cache with the new version from the network
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(req, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch(err => {
+        // Network failed, do nothing, rely on cache
+        console.warn('Network request failed, serving from cache.', err.message);
+      });
+
+      // Return cached response while network request runs in the background
+      return cachedResponse || fetchPromise;
     })
   );
 });
