@@ -1,17 +1,120 @@
-// ===== SKSK v0.7.5 Backend.gs (Optimized + Period Filter "All") =====
+// ===== SKSK v0.9.1 Backend.gs (Improved Error Handling) =====
 const TEMPLATE_ID = '1FgXgKYyiw5ZL1Dft4XyaQ2TEfTH22orDUFTXu5n5gTw';
 const USER_PROP_KEY = 'sheetId';
 const SCHEMA_VARIANT_KEY = 'SCHEMA_VARIANT';
-const IDEMP_SCAN_ROWS = 50;
+const MASTER_CACHE_EXPIRATION_SECONDS = 21600;
 const CACHE_EXPIRATION_SECONDS = 300;
-const MASTER_CACHE_EXPIRATION_SECONDS = 1800;
+
+// ===== Gemini API Helper (Revised) =====
+function callGeminiApi_(prompt) {
+  const apiKey = ""; // Handled by the execution environment
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+  const payload = {
+    contents: [{
+      parts: [{ text: prompt }]
+    }],
+    generationConfig: {
+      temperature: 0.5,
+      topK: 1,
+      topP: 1,
+      maxOutputTokens: 8192,
+    }
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true // Important: This allows us to inspect the error response
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, options);
+    const responseCode = response.getResponseCode();
+    const responseBody = response.getContentText();
+
+    // --- IMPROVED ERROR HANDLING ---
+    // Check if the HTTP request was successful (200 OK)
+    if (responseCode !== 200) {
+      let errorMessage = `HTTP Error ${responseCode}.`;
+      try {
+        // Try to parse the specific error message from the Gemini API
+        const errorJson = JSON.parse(responseBody);
+        if (errorJson.error && errorJson.error.message) {
+          errorMessage += ` Pesan: ${errorJson.error.message}`;
+        }
+      } catch (e) {
+        // If parsing fails, just include the raw response body
+        errorMessage += ` Respons tidak valid: ${responseBody}`;
+      }
+      console.error("Gemini API Error:", errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    const result = JSON.parse(responseBody);
+    
+    if (result.candidates && result.candidates.length > 0 &&
+        result.candidates[0].content && result.candidates[0].content.parts &&
+        result.candidates[0].content.parts.length > 0) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      console.error("Gemini API response structure is unexpected:", JSON.stringify(result));
+      // Check for safety ratings or other blocks
+      if (result.candidates && result.candidates[0].finishReason === 'SAFETY') {
+        throw new Error("Respons diblokir karena alasan keamanan konten.");
+      }
+      throw new Error("Gagal mendapatkan respons dari AI. Coba lagi nanti.");
+    }
+  } catch (e) {
+    // This will now catch both network errors and our custom detailed HTTP errors
+    console.error("Error in callGeminiApi_:", e.toString());
+    // Re-throw the error so the client-side can display it
+    throw new Error(`Terjadi kesalahan saat menghubungi layanan AI. (${e.message})`);
+  }
+}
+
+// ===== Gemini-Powered Features =====
+function getFinancialAnalysis(reportData) {
+  if (!reportData || reportData.length === 0) {
+    return "<p>Tidak ada data untuk dianalisis.</p>";
+  }
+  const prompt = `
+    Anda adalah seorang penasihat keuangan yang ramah dan suportif.
+    Berdasarkan data pengeluaran dan anggaran berikut dalam format JSON, berikan analisis singkat (maksimal 3 poin) dalam Bahasa Indonesia.
+    Fokus pada:
+    1.  Area pengeluaran terbesar.
+    2.  Kategori di mana pengeluaran melebihi anggaran (jika ada).
+    3.  Satu saran praktis yang bisa langsung diterapkan untuk berhemat.
+    
+    Format jawaban Anda sebagai HTML dengan unordered list (\`<ul>\` dan \`<li>\`). Jangan gunakan markdown.
+    Data:
+    ${JSON.stringify(reportData)}
+  `;
+  return callGeminiApi_(prompt);
+}
+
+function getGoalSavingsPlan(goalData) {
+  const { goalName, nominalNeeded } = goalData;
+  if (!goalName || !nominalNeeded || Number(nominalNeeded) <= 0) {
+    return "<p>Nama Goal dan Nominal dibutuhkan untuk membuat rencana.</p>";
+  }
+  const prompt = `
+    Buatkan rencana menabung sederhana dalam 3 langkah praktis untuk mencapai tujuan keuangan bernama "${goalName}" dengan total target sebesar Rp ${Number(nominalNeeded).toLocaleString('id-ID')}.
+    Gunakan Bahasa Indonesia.
+    Asumsikan pengguna ingin mencapainya dalam waktu yang wajar (misal, 6-12 bulan).
+    Berikan jawaban dalam format HTML dengan unordered list (\`<ul>\` dan \`<li>\`). Jangan gunakan markdown.
+  `;
+  return callGeminiApi_(prompt);
+}
+
 
 // ===== Util Cache =====
 function clearCacheByPrefix(prefix) {
   const cache = CacheService.getScriptCache();
-  const keys = ['report_budget', 'report_goals', 'tx_list', 'wallet_balances'];
+  const keys = ['report_budget', 'report_goals', 'tx_list', 'wallet_balances', 'dashboard_data', 'master_wallets', 'master_categories', 'master_purposes'];
   cache.removeAll(keys);
-  console.log('Report caches cleared due to data change.');
+  console.log('All relevant caches cleared due to data change.');
 }
 
 // ===== Router Web App & Assets PWA =====
@@ -26,10 +129,14 @@ function doGet(e) {
       HtmlService.createTemplateFromFile('service-worker').getRawContent()
     ).setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-  return HtmlService.createTemplateFromFile('index').evaluate().setTitle('SKSK').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  const template = HtmlService.createTemplateFromFile('index');
+  template.scriptUrl = ScriptApp.getService().getUrl();
+  return template.evaluate().setTitle('SKSK').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ===== Util DB =====
+// (Sisa kode Backend.gs tidak berubah)
+// ...
+
 function getOrCreateDb_() {
   const up = PropertiesService.getUserProperties();
   const id = up.getProperty(USER_PROP_KEY);
@@ -42,8 +149,6 @@ function getSheet_(sheetName) {
   if (!sh) throw new Error(`Sheet tidak ditemukan: ${sheetName}`);
   return sh;
 }
-
-// ===== Header Helpers =====
 function normalizeHeaderName_(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
 function buildHeaderMap_(sheet){
   const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0] || [];
@@ -63,8 +168,6 @@ function assertSchemaV2_(tab, requiredCanonicalKeys){
   if (missing.length) throw new Error(`Skema '${tab}' kurang kolom: ${missing.join(', ')}`);
   return { sheet: sh, ...ctx };
 }
-
-// ===== Onboarding =====
 function createNewDb(){
   const copy = DriveApp.getFileById(TEMPLATE_ID).makeCopy(`SKSK DB - ${new Date().toISOString()}`);
   const ss = SpreadsheetApp.open(copy);
@@ -119,35 +222,17 @@ function seedDemo_(ss){
     if (!has('Transfer-In')) ensure('Transfer-In');
   }
 }
-
-// ===== Append Row =====
 function appendRow_(tab, rowObj){
   const { sheet, headers, map } = assertSchemaV2_(tab, []);
   const now = new Date();
   if ('updatedat' in map && !('updatedat' in rowObj)) rowObj[map['updatedat'].name] = now;
   if ('createdat' in map && !('createdat' in rowObj)) rowObj[map['createdat'].name] = now;
   if ('uniqueid'  in map && !('uniqueid'  in rowObj)) rowObj[map['uniqueid'].name]  = Utilities.getUuid();
-
   const ordered = headers.map(h => (h in rowObj ? rowObj[h] : ''));
   sheet.getRange(sheet.getLastRow()+1,1,1,headers.length).setValues([ordered]);
-
-  // Clear caches yang terdampak
-  const cache = CacheService.getScriptCache();
-  if (tab === 'Wallet Setup') {
-    cache.remove('master_wallets');
-    cache.removeAll(['map_wallets','wallet_balances']);
-  }
-  if (tab === 'Category Setup') {
-    cache.remove('master_categories');
-    cache.removeAll(['map_categories','report_budget']);
-  }
-  if (tab === 'Account Setup')  cache.remove('master_purposes');
-  if (tab === 'Goals Setup')    cache.remove('report_goals');
-
+  clearCacheByPrefix('');
   return { ok:true };
 }
-
-// ===== Setup Creators =====
 function createWallet(payload){
   const req = ['wallet'];
   const { map } = assertSchemaV2_('Wallet Setup', req);
@@ -190,8 +275,6 @@ function createGoal(payload){
   if ('nominalneeded' in map) row[map['nominalneeded'].name] = Number(payload.nominalNeeded || 0);
   return appendRow_('Goals Setup', row);
 }
-
-// ===== Cached Maps =====
 function getCategoryMap_(){
   const cache = CacheService.getScriptCache();
   const key = 'map_categories';
@@ -204,8 +287,7 @@ function getCategoryMap_(){
   vals.forEach(r=>{
     const sub = String(r[idx('subcategory')] || '').trim();
     if (!sub) return;
-    m[sub] = { TransactionType: r[idx('transactiontype')], Category: r[idx('category')],
-               Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : '' };
+    m[sub] = { TransactionType: r[idx('transactiontype')], Category: r[idx('category')] };
   });
   cache.put(key, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
   return m;
@@ -227,8 +309,6 @@ function getWalletMap_(){
   cache.put(key, JSON.stringify(m), MASTER_CACHE_EXPIRATION_SECONDS);
   return m;
 }
-
-// ===== Getters (Public, Cached) =====
 function getWallets(){
   const cache = CacheService.getScriptCache();
   const key = 'master_wallets';
@@ -237,7 +317,6 @@ function getWallets(){
   const vals = sheet.getDataRange().getValues(); vals.shift();
   const idx = k => getIndex_(map,k,'Wallet Setup');
   const result = vals.filter(r=>r[idx('wallet')]).map(r=>({
-    UniqueID: ('uniqueid' in map) ? r[map['uniqueid'].index] : '',
     Wallet: r[idx('wallet')], WalletType: r[idx('wallettype')], WalletOwner: r[idx('walletowner')],
   }));
   cache.put(key, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
@@ -252,48 +331,14 @@ function getCategories(){
   const idx = k => getIndex_(map,k,'Category Setup');
   const result = vals.filter(r => String(r[idx('subcategory')]||'').trim()).map(r=>({
     Subcategory: r[idx('subcategory')], Category: r[idx('category')], TransactionType: r[idx('transactiontype')],
-    Ratios: (normalizeHeaderName_('ratios') in map) ? r[map['ratios'].index] : '',
   }));
   cache.put(key, JSON.stringify(result), MASTER_CACHE_EXPIRATION_SECONDS);
   return result;
 }
-function getTransactions(){
-  const cache = CacheService.getScriptCache();
-  const key = 'tx_list';
-  const cached = cache.get(key); if (cached) return JSON.parse(cached);
-  const req = ['uniqueid','date','subcategory','category','wallet','amount','adjustedamount'];
-  const { sheet, map } = assertSchemaV2_('Input', req);
-  const vals = sheet.getDataRange().getValues(); vals.shift();
-  const idx = k => getIndex_(map,k,'Input');
-  const result = vals.filter(r=>r[idx('uniqueid')]).map(r=>({
-    UniqueID: r[idx('uniqueid')], Date: r[idx('date')], Subcategory: r[idx('subcategory')],
-    Category: r[idx('category')], Wallet: r[idx('wallet')], Amount: r[idx('amount')],
-    AdjustedAmount: r[idx('adjustedamount')],
-    Note: ('note' in map) ? r[map['note'].index] : '',
-    Description: ('description' in map) ? r[map['description'].index] : '',
-  }));
-  cache.put(key, JSON.stringify(result), CACHE_EXPIRATION_SECONDS);
-  return result;
-}
-function getDistinctNotes(limit){
-  const LIM = Math.max(1, Number(limit || 20));
-  const { sheet, map } = assertSchemaV2_('Input', ['date']);
-  if (!('note' in map)) return [];
-  const last = sheet.getLastRow(); if (last < 2) return [];
-  const start = Math.max(2, last - 800);
-  const rng = sheet.getRange(start,1,last-start+1,sheet.getLastColumn()).getValues();
-  const i = k => getIndex_(map,k,'Input');
-  const rows = rng.map(r => ({ d:new Date(r[i('date')]), n:String(r[map['note']?.index]||'').trim() })).filter(x=>x.n);
-  rows.sort((a,b)=> b.d - a.d);
-  const seen = new Set(), out = [];
-  for (const x of rows){ if (!seen.has(x.n)){ seen.add(x.n); out.push(x.n); if (out.length>=LIM) break; } }
-  return out;
-}
-function getExpensePurposes(limit){
+function getExpensePurposes(){
   const cache = CacheService.getScriptCache();
   const key = 'master_purposes';
   const cached = cache.get(key); if (cached) return JSON.parse(cached);
-  const LIM = Math.max(1, Number(limit || 100));
   const sh = getSheet_('Account Setup');
   const { headers } = buildHeaderMap_(sh);
   const candidates = ['expensepurpose','expensefor'];
@@ -302,12 +347,45 @@ function getExpensePurposes(limit){
   if (colIdx<0) return [];
   const vals = sh.getRange(2,colIdx+1,Math.max(0, sh.getLastRow()-1),1).getValues();
   const seen = new Set(), out = [];
-  for (const [v] of vals){ const s = String(v||'').trim(); if (!s || seen.has(s)) continue; seen.add(s); out.push(s); if (out.length>=LIM) break; }
+  for (const [v] of vals){ const s = String(v||'').trim(); if (!s || seen.has(s)) continue; seen.add(s); out.push(s); }
   cache.put(key, JSON.stringify(out), MASTER_CACHE_EXPIRATION_SECONDS);
   return out;
 }
-
-// ===== Add Transaction =====
+function getDistinctNotes(limit){
+    const LIM = Math.max(1, Number(limit || 20));
+    const { sheet, map } = assertSchemaV2_('Input', ['date']);
+    if (!('note' in map)) return [];
+    const last = sheet.getLastRow(); if (last < 2) return [];
+    const start = Math.max(2, last - 800);
+    const rng = sheet.getRange(start, 1, last - start + 1, sheet.getLastColumn()).getValues();
+    const i = k => getIndex_(map, k, 'Input');
+    const rows = rng.map(r => ({ d: new Date(r[i('date')]), n: String(r[map['note']?.index] || '').trim() })).filter(x => x.n);
+    rows.sort((a, b) => b.d - a.d);
+    const seen = new Set(), out = [];
+    for (const x of rows) { if (!seen.has(x.n)) { seen.add(x.n); out.push(x.n); if (out.length >= LIM) break; } }
+    return out;
+}
+function getHistoryTransactions(options = {}) {
+    const { page = 1, limit = 50 } = options;
+    const req = ['uniqueid', 'date', 'subcategory', 'category', 'wallet', 'amount', 'adjustedamount'];
+    const { sheet, map } = assertSchemaV2_('Input', req);
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { transactions: [], hasMore: false };
+    const startRow = Math.max(2, lastRow - (page * limit) + 1);
+    const numRows = Math.min(limit, lastRow - startRow + 1);
+    if (numRows <= 0) return { transactions: [], hasMore: false };
+    const vals = sheet.getRange(startRow, 1, numRows, sheet.getLastColumn()).getValues();
+    const idx = k => getIndex_(map, k, 'Input');
+    const result = vals.map(r => ({
+        UniqueID: r[idx('uniqueid')], Date: r[idx('date')], Subcategory: r[idx('subcategory')],
+        Category: r[idx('category')], Wallet: r[idx('wallet')], Amount: r[idx('amount')],
+        AdjustedAmount: r[idx('adjustedamount')],
+        Note: ('note' in map) ? r[map['note'].index] : '',
+        Description: ('description' in map) ? r[map['description'].index] : '',
+    })).reverse();
+    const hasMore = startRow > 2;
+    return { transactions: result, hasMore };
+}
 function addTransaction(row){
   try{
     const { sheet: sh, map } = assertSchemaV2_('Input',
@@ -317,29 +395,24 @@ function addTransaction(row){
     if (!row.wallet) throw new Error('Wallet wajib diisi.');
     const amount = Number(row.amount);
     if (!(amount > 0)) throw new Error('Amount harus > 0.');
-
     const catMap = getCategoryMap_();
     const cinfo = catMap[row.subcategory] || {};
     const subNorm = normalizeHeaderName_(row.subcategory);
     const isTransferType = (cinfo.TransactionType === 'Transfer') || (subNorm === 'transferout' || subNorm === 'transferin');
     const isTransferOut  = (subNorm === 'transferout') || (isTransferType && !!row.transferTo);
     const isTransferIn   = (subNorm === 'transferin');
-
     if (isTransferOut) {
       if (!row.transferTo) throw new Error('Transfer To wajib diisi untuk Transfer-Out.');
       if (row.transferTo === row.wallet) throw new Error('Dompet tujuan tidak boleh sama.');
     }
-
     const txType   = isTransferType ? 'Transfer' : (cinfo.TransactionType || 'Expense');
     const category = isTransferType ? 'Transfer' : (cinfo.Category || '');
     const adjusted = isTransferOut ? -Math.abs(amount)
                    : isTransferIn  ?  Math.abs(amount)
                    : (txType === 'Expense') ? -Math.abs(amount) : Math.abs(amount);
-
     const baseId = Utilities.getUuid();
     const idOut  = baseId + '_out';
     const idIn   = baseId + '_in';
-
     const rowData = {
       [map['uniqueid'].name]: isTransferOut ? idOut : baseId,
       [map['date'].name]: row.date ? new Date(row.date) : now,
@@ -354,11 +427,9 @@ function addTransaction(row){
     if ('description' in map)    rowData[map['description'].name] = row.description || '';
     if ('transferto' in map)     rowData[map['transferto'].name] = row.transferTo || '';
     if ('expensepurpose' in map) rowData[map['expensepurpose'].name] = row.expensePurpose || '';
-
     const rowsToWrite = [];
     const headers = Object.values(map).sort((a,b)=>a.index-b.index).map(o=>o.name);
     rowsToWrite.push(headers.map(h => h in rowData ? rowData[h] : ''));
-
     if (isTransferOut && row.transferTo) {
       const twin = { ...rowData };
       twin[map['uniqueid'].name]        = idIn;
@@ -368,80 +439,27 @@ function addTransaction(row){
       if ('transferto' in map) twin[map['transferto'].name] = row.wallet;
       rowsToWrite.push(headers.map(h => h in twin ? twin[h] : ''));
     }
-
     if (rowsToWrite.length > 0) {
       sh.getRange(sh.getLastRow()+1,1,rowsToWrite.length,headers.length).setValues(rowsToWrite);
     }
-    clearCacheByPrefix('report_');
-    return { success:true, id:baseId };
+    clearCacheByPrefix('');
+    return { success:true, id:baseId, transaction: rowData };
   } catch(err){ throw err; }
 }
-
-// ===== Reports =====
-function getBudgetSummary(){
-  const cache = CacheService.getScriptCache();
-  const CACHE_KEY = 'report_budget';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) return JSON.parse(cached);
-
-  const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
-  const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount','date']);
-  const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
-  const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-  const c = k => getIndex_(cat.map, k, 'Category Setup');
-  const i = k => getIndex_(inp.map, k, 'Input');
-
-  const budgetMap = {};
-  cVals.forEach(r=>{
-    const sub = String(r[c('subcategory')]||'').trim(); if (!sub) return;
-    const catName = r[c('category')] || '';
-    const bIdx = (normalizeHeaderName_('budgetsubcategory') in cat.map) ? cat.map['budgetsubcategory'].index : -1;
-    const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
-    budgetMap[sub] = { category: catName, budget };
-  });
-
-  const spentBySub = {};
-  iVals.forEach(r=>{
-    const catName = String(r[i('category')] || '').trim();
-    if (catName.toLowerCase() === 'transfer') return; // skip transfer
-
-    const sub = String(r[i('subcategory')] || '').trim(); if (!sub) return;
-    const adj = Number(r[i('adjustedamount')] || 0);
-    if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
-
-    if (!budgetMap[sub]) budgetMap[sub] = { category: catName || '', budget: 0 };
-  });
-
-  const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
-  const rows = subs.map(sub=>{
-    const info = budgetMap[sub] || { category:'', budget:0 };
-    const spent = Number(spentBySub[sub] || 0);
-    return { category: info.category || '', subcategory: sub, spent, budget: Number(info.budget || 0), remaining: Number(info.budget || 0) + spent };
-  });
-  rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
-
-  cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
-  return rows;
-}
-
 function getWalletBalances(){
   const cache = CacheService.getScriptCache();
   const CACHE_KEY = 'wallet_balances';
-  const cached = cache.get(CACHE_KEY);
-  if (cached) return JSON.parse(cached);
-
+  const cached = cache.get(CACHE_KEY); if (cached) return JSON.parse(cached);
   const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
   const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
   const i = k => getIndex_(inp.map, k, 'Input');
-
-  const walMap = getWalletMap_(); // ambil tipe wallet
+  const walMap = getWalletMap_();
   const bal = {};
   iVals.forEach(r=>{
     const w = String(r[i('wallet')]||'').trim(); if (!w) return;
     const a = Number(r[i('adjustedamount')] || 0);
     bal[w] = (bal[w] || 0) + a;
   });
-
   const rows = Object.keys(walMap).map(w => ({
     wallet: w,
     type: (walMap[w] && walMap[w].WalletType) ? walMap[w].WalletType : 'Other Asset',
@@ -450,89 +468,31 @@ function getWalletBalances(){
   cache.put(CACHE_KEY, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
   return rows;
 }
-
-function getGoalsWithProgress(){
-  const cache = CacheService.getScriptCache();
-  const key = 'report_goals';
-  const cached = cache.get(key); if (cached) return JSON.parse(cached);
-
-  const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
-  const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
-  const i = k => getIndex_(inp.map, k, 'Input');
-
-  const balanceByWallet = {};
-  iVals.forEach(r=>{
-    const w = r[i('wallet')]; if (!w) return;
-    const a = Number(r[i('adjustedamount')] || 0);
-    balanceByWallet[w] = (balanceByWallet[w] || 0) + a;
-  });
-
-  const goals = assertSchemaV2_('Goals Setup', ['goals']);
-  const gVals = goals.sheet.getDataRange().getValues(); gVals.shift();
-  const g = k => getIndex_(goals.map, k, 'Goals Setup');
-  const hasNeeded = ('nominalneeded' in goals.map);
-  const hasOwner  = ('goalowner' in goals.map);
-
-  const rows = [];
-  gVals.forEach(r=>{
-    const goalName = String(r[g('goals')]||'').trim(); if (!goalName) return;
-    const needed   = hasNeeded ? Number(r[g('nominalneeded')] || 0) : 0;
-    const progress = Number(balanceByWallet[goalName] || 0);
-    const completion = needed > 0 ? (progress / needed) : 0;
-    rows.push({ goal:goalName, owner: hasOwner ? r[g('goalowner')] : '', needed, progress, completion });
-  });
-
-  cache.put(key, JSON.stringify(rows), CACHE_EXPIRATION_SECONDS);
-  return rows;
+function getReportData() {
+    const cache = CacheService.getScriptCache();
+    const budgetKey = 'report_budget';
+    const goalsKey = 'report_goals';
+    let budgetSummary = cache.get(budgetKey);
+    let goalsProgress = cache.get(goalsKey);
+    if (budgetSummary && goalsProgress) {
+        return {
+            budgetSummary: JSON.parse(budgetSummary),
+            goalsProgress: JSON.parse(goalsProgress)
+        };
+    }
+    const budget = getBudgetSummary_();
+    const goals = getGoalsWithProgress_();
+    cache.put(budgetKey, JSON.stringify(budget), CACHE_EXPIRATION_SECONDS);
+    cache.put(goalsKey, JSON.stringify(goals), CACHE_EXPIRATION_SECONDS);
+    return { budgetSummary: budget, goalsProgress: goals };
 }
-
-// ===== Period Helpers & Filtered Endpoints (support "All") =====
-function resolvePeriodRange_(p){
-  // p.year/p.month bisa number atau string 'All'
-  if (!p || p.year === 'All' || !p.year) {
-    return { filter: 'none', start: null, end: null }; // semua periode
-  }
-  const y = Number(p.year);
-  if (!p.month || p.month === 'All') {
-    const start = new Date(y, 0, 1);
-    const end   = new Date(y + 1, 0, 1);
-    return { filter: 'year', start, end };
-  }
-  const m = Number(p.month); // 1..12
-  const start = new Date(y, m - 1, 1);
-  const end   = new Date(y, m, 1);
-  return { filter: 'month', start, end };
-}
-
-function getAvailableYears(){
-  const list = getTransactions() || [];
-  const years = new Set();
-  list.forEach(tx => {
-    const d = new Date(tx.Date);
-    if (d instanceof Date && !isNaN(d)) years.add(d.getFullYear());
-  });
-  const arr = Array.from(years).sort((a,b)=> b - a);
-  return arr.length ? arr : [new Date().getFullYear()];
-}
-
-function getTransactionsByPeriod(p){
-  const pr = resolvePeriodRange_(p || {});
-  const all = getTransactions() || [];
-  if (pr.filter === 'none') return all;
-  return all.filter(tx => {
-    const d = new Date(tx.Date);
-    return (d >= pr.start && d < pr.end);
-  });
-}
-
-function getBudgetSummaryPeriod(p){
-  const pr = resolvePeriodRange_(p || {});
-
-  // ambil budget per subcategory langsung dari sheet (agar kolom Budget Subcategory kepakai)
+function getBudgetSummary_(){
   const cat = assertSchemaV2_('Category Setup', ['subcategory','category']);
+  const inp = assertSchemaV2_('Input', ['subcategory','category','adjustedamount','date']);
   const cVals = cat.sheet.getDataRange().getValues(); cVals.shift();
+  const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
   const c = k => getIndex_(cat.map, k, 'Category Setup');
-
+  const i = k => getIndex_(inp.map, k, 'Input');
   const budgetMap = {};
   cVals.forEach(r=>{
     const sub = String(r[c('subcategory')]||'').trim(); if (!sub) return;
@@ -541,24 +501,19 @@ function getBudgetSummaryPeriod(p){
     const budget = bIdx >= 0 ? Number(r[bIdx] || 0) : 0;
     budgetMap[sub] = { category: catName, budget };
   });
-
   const spentBySub = {};
-  const allTx = getTransactions() || [];
-  allTx.forEach(r=>{
-    const d = new Date(r.Date);
-    if (pr.filter !== 'none' && !(d >= pr.start && d < pr.end)) return;
-
-    const catName = String(r.Category || '').trim();
-    if (catName.toLowerCase() === 'transfer') return; // skip transfer
-
-    const sub = String(r.Subcategory || '').trim();
-    if (!sub) return;
-    const adj = Number(r.AdjustedAmount || 0);
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+  const start = new Date(y,m,1), end = new Date(y,m+1,1);
+  iVals.forEach(r=>{
+    const d = new Date(r[i('date')]);
+    if (!(d >= start && d < end)) return;
+    const catName = String(r[i('category')] || '').trim();
+    if (catName.toLowerCase() === 'transfer') return;
+    const sub = String(r[i('subcategory')] || '').trim(); if (!sub) return;
+    const adj = Number(r[i('adjustedamount')] || 0);
     if (adj < 0) spentBySub[sub] = (spentBySub[sub] || 0) + adj;
-
     if (!budgetMap[sub]) budgetMap[sub] = { category: catName || '', budget: 0 };
   });
-
   const subs = Array.from(new Set([...Object.keys(budgetMap), ...Object.keys(spentBySub)]));
   const rows = subs.map(sub=>{
     const info = budgetMap[sub] || { category:'', budget:0 };
@@ -568,18 +523,44 @@ function getBudgetSummaryPeriod(p){
   rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.subcategory.localeCompare(b.subcategory));
   return rows;
 }
-
-// ===== Initial Aggregation =====
-function getInitialData(){
-  return {
+function getGoalsWithProgress_(){
+  const inp = assertSchemaV2_('Input', ['wallet','adjustedamount']);
+  const iVals = inp.sheet.getDataRange().getValues(); iVals.shift();
+  const i = k => getIndex_(inp.map, k, 'Input');
+  const balanceByWallet = {};
+  iVals.forEach(r=>{
+    const w = r[i('wallet')]; if (!w) return;
+    const a = Number(r[i('adjustedamount')] || 0);
+    balanceByWallet[w] = (balanceByWallet[w] || 0) + a;
+  });
+  const goals = assertSchemaV2_('Goals Setup', ['goals']);
+  const gVals = goals.sheet.getDataRange().getValues(); gVals.shift();
+  const g = k => getIndex_(goals.map, k, 'Goals Setup');
+  const hasNeeded = ('nominalneeded' in goals.map);
+  const hasOwner  = ('goalowner' in goals.map);
+  const rows = [];
+  gVals.forEach(r=>{
+    const goalName = String(r[g('goals')]||'').trim(); if (!goalName) return;
+    const needed   = hasNeeded ? Number(r[g('nominalneeded')] || 0) : 0;
+    const progress = Number(balanceByWallet[goalName] || 0);
+    const completion = needed > 0 ? (progress / needed) : 0;
+    rows.push({ goal:goalName, owner: hasOwner ? r[g('goalowner')] : '', needed, progress, completion });
+  });
+  return rows;
+}
+function getDashboardData(){
+  const cache = CacheService.getScriptCache();
+  const CACHE_KEY = 'dashboard_data';
+  const cached = cache.get(CACHE_KEY);
+  if (cached) return JSON.parse(cached);
+  const data = {
     wallets: getWallets(),
     categories: getCategories(),
-    transactions: getTransactions(),
+    purposes: getExpensePurposes(),
     notes: getDistinctNotes(25),
-    purposes: getExpensePurposes(200),
-    budgetSummary: getBudgetSummary(),
-    goalsProgress: getGoalsWithProgress(),
     walletBalances: getWalletBalances(),
-    availableYears: getAvailableYears()
+    budgetSummary: getBudgetSummary_(),
   };
+  cache.put(CACHE_KEY, JSON.stringify(data), CACHE_EXPIRATION_SECONDS);
+  return data;
 }
