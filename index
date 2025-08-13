@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SatukasSatukas</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="manifest" href="?asset=manifest&v=20250812">
+  <link id="manifestLink" rel="manifest">
 </head>
 <body class="bg-slate-100 text-slate-900">
 
   <!-- Header / Nav -->
-  <header class="sticky top-0 z-10 bg-gradient-to-r from-emerald-500 to-sky-500 text-white shadow-md">
+  <header class="sticky top-0 z-20 bg-gradient-to-r from-emerald-500 to-sky-500 text-white shadow-md">
     <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
       <h1 class="text-xl font-semibold tracking-wide">SatukasSatukas</h1>
       <nav class="flex items-center gap-2">
@@ -23,6 +23,11 @@
       </nav>
     </div>
   </header>
+
+  <div id="loadingIndicator" class="fixed top-16 left-1/2 -translate-x-1/2 z-30 bg-sky-600 text-white text-sm px-4 py-1 rounded-full shadow-lg hidden">
+    Memuat...
+  </div>
+
 
   <main class="max-w-2xl mx-auto px-4 py-6">
 
@@ -76,15 +81,13 @@
         </form>
       </section>
 
-      <!-- Net Worth -->
       <section class="bg-white border rounded-lg shadow p-4">
         <h2 class="text-lg font-semibold mb-3">
           Net Worth <span id="netWorthInline" class="ml-2"></span>
         </h2>
-        <div id="walletBalancesWrap" class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2"></div>
+        <div id="walletBalancesWrap" class="space-y-4 mt-2"></div>
       </section>
 
-      <!-- Budget Overview (MTD) -->
       <section class="bg-white border rounded-lg shadow p-4">
         <h2 class="text-lg font-semibold mb-3">Budget Overview (Bulan Berjalan)</h2>
         <div id="budgetOverviewWrap" class="space-y-2"></div>
@@ -98,21 +101,37 @@
           <h2 class="text-lg font-semibold">Riwayat</h2>
           <input id="search" placeholder="Cari transaksi..." class="border rounded p-2 text-sm">
         </div>
-        <div id="txList" class="space-y-2 max-h-96 overflow-y-auto"></div>
+        <div id="txList" class="space-y-2"></div>
+        <div class="text-center mt-4">
+            <button id="btnLoadMore" class="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 rounded hidden">Muat Lagi</button>
+        </div>
       </section>
     </section>
 
     <!-- REPORTS -->
     <section id="reportView" class="space-y-6 hidden">
+      <!-- GEMINI FEATURE: Financial Analysis -->
+      <section class="bg-white border rounded-lg shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">Analisis Keuangan Cerdas</h2>
+          <button id="btnAnalyzeReport" class="px-3 py-2 text-sm bg-sky-600 text-white rounded hover:bg-sky-700 transition flex items-center disabled:opacity-50">
+            <span class="mr-2">✨</span> Analisis
+          </button>
+        </div>
+        <div id="reportAnalysisResult" class="mt-4 text-sm p-3 bg-sky-50 rounded-lg border border-sky-200 min-h-[5rem]">
+          <p class="text-slate-500">Klik tombol "Analisis" untuk mendapatkan wawasan dari AI tentang kondisi keuangan Anda bulan ini.</p>
+        </div>
+      </section>
+
       <section class="bg-white border rounded-lg shadow p-4">
         <h2 class="text-lg font-semibold mb-3">Budget Summary</h2>
-        <table class="w-full text-sm border">
+        <table class="w-full text-sm border-collapse">
           <thead class="bg-slate-50">
             <tr>
-              <th class="p-2 text-left font-semibold w-[30%]">Category</th>
-              <th class="p-2 text-left font-semibold w-[30%]">Subcategory</th>
-              <th class="p-2 text-right font-semibold w-[20%]">Spent</th>
-              <th class="p-2 text-right font-semibold w-[20%]">Remaining</th>
+              <th class="p-2 text-left font-semibold w-[30%] border-b">Category</th>
+              <th class="p-2 text-left font-semibold w-[30%] border-b">Subcategory</th>
+              <th class="p-2 text-right font-semibold w-[20%] border-b">Spent</th>
+              <th class="p-2 text-right font-semibold w-[20%] border-b">Remaining</th>
             </tr>
           </thead>
           <tbody id="budgetTbody"></tbody>
@@ -158,28 +177,41 @@
   <?!= HtmlService.createHtmlOutputFromFile('app').getContent(); ?>
 
   <script>
-    // PWA SW register
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('?asset=sw&v=20250812').catch(err => console.error('Service Worker registration failed:', err));
+    window.addEventListener('load', function() {
+      // Determine the base URL from the browser's location.
+      const SCRIPT_URL = window.location.href.split('?')[0];
+      const MANIFEST_VERSION = '20250826';
+      const SW_VERSION = '20250826';
+
+      if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) {
+          console.error('FATAL: Could not determine a valid script URL from window.location.href.');
+          return;
+      }
+
+      document.getElementById('manifestLink').href = SCRIPT_URL + '?asset=manifest&v=' + MANIFEST_VERSION;
+
+      if ('serviceWorker' in navigator) {
+        const swUrl = SCRIPT_URL + '?asset=sw&v=' + SW_VERSION;
+        navigator.serviceWorker.register(swUrl)
+          .then(registration => console.log('Service Worker registered successfully:', registration.scope))
+          .catch(err => console.error('Service Worker registration failed:', err, 'URL:', swUrl));
+      }
+
+      let deferredPrompt;
+      const btnInstall = document.getElementById('btnInstall');
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (btnInstall) btnInstall.classList.remove('hidden');
       });
-    }
 
-    let deferredPrompt;
-    const btnInstall = document.getElementById('btnInstall');
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      if (btnInstall) btnInstall.classList.remove('hidden');
-    });
-
-    btnInstall?.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
-      btnInstall.classList.add('hidden');
+      btnInstall?.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        btnInstall.classList.add('hidden');
+      });
     });
   </script>
 </body>
