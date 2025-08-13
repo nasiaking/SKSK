@@ -1,13 +1,31 @@
 {
   "name": "SKSK Finance Logger",
   "short_name": "SKSK",
-  "start_url": "./?src=pwa",
+  "description": "Aplikasi pencatat keuangan pribadi untuk melacak pengeluaran dan tabungan Anda.",
+  "start_url": ".",
   "scope": ".",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#10b981",
   "icons": [
-    { "src": "https://www.google.com/images/icons/google-logo-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "https://www.google.com/images/icons/google-logo-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "https://www.google.com/images/icons/google-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://www.google.com/images/icons/google-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://www.google.com/images/icons/google-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
