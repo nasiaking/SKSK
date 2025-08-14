@@ -94,7 +94,7 @@
   btnTabReport?.addEventListener('click', () => {
     showOnly(reportView);
     if (!isReportLoaded) {
-        showLoading('Memuat laporan...');
+        showLoading('Loading reports...');
         gs('getReportData').then(data => {
             _budgetCache = data.budgetSummary || [];
             _goalsCache = data.goalsProgress || [];
@@ -107,17 +107,17 @@
   btnSetupOpen?.addEventListener('click', () => { showOnly(setupView); });
 
   btnRefreshHeader?.addEventListener('click', () => {
-    showLoading('Memperbarui data...');
+    showLoading('Updating data...');
     isHistoryLoaded = false;
     isReportLoaded = false;
     txCache = [];
     historyPage = 1;
     historyHasMore = true;
     bootstrap();
-    showToast('✅ Data diperbarui');
+    showToast('✅ Data updated');
   });
 
-  function showLoading(message = 'Memuat...') {
+  function showLoading(message = 'Loading...') {
     if (!loadingIndicator) return;
     loadingIndicator.textContent = message;
     loadingIndicator.classList.remove('hidden');
@@ -126,7 +126,7 @@
     loadingIndicator?.classList.add('hidden');
   }
   function handleError(err) {
-    const message = (err && err.message) || 'Terjadi kesalahan.';
+    const message = (err && err.message) || 'An error occurred.';
     console.error('Error:', message);
     showToast(message, true);
     hideLoading();
@@ -135,18 +135,18 @@
 
   // ======== SETUP: Buat DB ========
   document.getElementById('btnCreateNew')?.addEventListener('click', () => {
-    setupMsg.textContent = 'Membuat database di Drive Bung...';
+    setupMsg.textContent = 'Creating database in your Drive...';
     gs('createNewDb').then(() => {
-      setupMsg.textContent = 'DB dibuat & terhubung. Memuat aplikasi...';
+      setupMsg.textContent = 'Database created & connected. Loading app...';
       bootstrap();
     }).catch(err => {
-      setupMsg.textContent = (err && err.message) || 'Gagal membuat DB.';
+      setupMsg.textContent = (err && err.message) || 'Failed to create database.';
     });
   });
 
   // ======== BOOTSTRAP (INITIAL LOAD) ========
   function bootstrap() {
-    showLoading('Memuat data awal...');
+    showLoading('Loading initial data...');
     gs('getDashboardData').then(data => {
       wallets        = data.wallets || [];
       categories     = data.categories || [];
@@ -178,7 +178,7 @@
   }
   function fillSelect(sel, arr) {
     if (!sel) return;
-    sel.innerHTML = '<option value="">-- Pilih --</option>';
+    sel.innerHTML = '<option value="">-- Select --</option>';
     (arr||[]).forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
   }
   function fillDatalist(dl, arr) {
@@ -186,8 +186,8 @@
     dl.innerHTML = '';
     (arr||[]).forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
   }
-  function formatMoney(n){ return (new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0})).format(n||0); }
-  function safeDate(v){ try{ const d=new Date(v); return isFinite(d)? d.toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'numeric'}):'';}catch(_){return '';} }
+  function formatMoney(n){ return (new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0})).format(n||0); }
+  function safeDate(v){ try{ const d=new Date(v); return isFinite(d)? d.toLocaleDateString('en-CA'):'';}catch(_){return '';} }
   function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
   // ======== TRANSFER UI ========
@@ -218,16 +218,16 @@
       note: (noteInp.value || '').trim(),
       description: (descInp.value || '').trim(),
     };
-    if (!payload.subcategory || !payload.wallet) { showToast('Subcategory dan Wallet wajib diisi.', true); return; }
-    if (isTO && !payload.transferTo) { showToast('Pilih dompet tujuan, Bung.', true); return; }
-    if (!payload.amount || payload.amount <= 0) { showToast('Amount harus > 0.', true); return; }
+    if (!payload.subcategory || !payload.wallet) { showToast('Subcategory and Wallet are required.', true); return; }
+    if (isTO && !payload.transferTo) { showToast('Please select a destination wallet.', true); return; }
+    if (!payload.amount || payload.amount <= 0) { showToast('Amount must be greater than 0.', true); return; }
 
     disableForm(true);
-    showLoading('Menyimpan transaksi...');
+    showLoading('Saving transaction...');
 
     gs('addTransaction', payload).then(result => {
         amtInp.value = ''; noteInp.value = ''; descInp.value = '';
-        showToast('✅ Transaksi tersimpan');
+        showToast('✅ Transaction saved');
         gs('getDashboardData').then(data => {
             walletBalances = data.walletBalances || [];
             _budgetCache = data.budgetSummary || [];
@@ -248,11 +248,10 @@
   function fetchHistory() {
       if (isHistoryLoading || !historyHasMore) return;
       isHistoryLoading = true;
-      showLoading('Memuat riwayat...');
+      showLoading('Loading history...');
       btnLoadMore?.classList.add('hidden');
 
       gs('getHistoryTransactions', { page: historyPage, limit: 50 }).then(result => {
-          // --- FIX: Add a guard clause to handle null or undefined results ---
           if (result && result.transactions) {
             txCache.push(...result.transactions);
             historyHasMore = result.hasMore;
@@ -262,10 +261,8 @@
                 btnLoadMore?.classList.remove('hidden');
             }
           } else {
-            // Handle case where there are no more transactions or an empty result
             historyHasMore = false;
             btnLoadMore?.classList.add('hidden');
-            // If it was the first load and it's empty, render to show the empty message
             if (txCache.length === 0) {
                 renderTransactions();
             }
@@ -291,7 +288,7 @@
     });
 
     if (!rows.length) {
-      txList.innerHTML = `<div class="text-sm text-slate-500 p-4 text-center">Belum ada transaksi.</div>`;
+      txList.innerHTML = `<div class="text-sm text-slate-500 p-4 text-center">No transactions yet.</div>`;
       return;
     }
 
@@ -324,12 +321,12 @@
   btnAnalyzeReport?.addEventListener('click', () => {
     const btn = btnAnalyzeReport;
     btn.disabled = true;
-    reportAnalysisResult.innerHTML = '<p class="text-slate-500">Menganalisis data dengan AI...</p>';
+    reportAnalysisResult.innerHTML = '<p class="text-slate-500">Analyzing data with AI...</p>';
 
     gs('getFinancialAnalysis', _budgetCache).then(htmlResult => {
       reportAnalysisResult.innerHTML = htmlResult;
     }).catch(err => {
-      reportAnalysisResult.innerHTML = `<p class="text-rose-600">Gagal menganalisis: ${err.message}</p>`;
+      reportAnalysisResult.innerHTML = `<p class="text-rose-600">Analysis failed: ${err.message}</p>`;
     }).finally(() => {
       btn.disabled = false;
     });
@@ -340,7 +337,7 @@
     budgetTbody.innerHTML = '';
     const rows = (list || []).filter(r => String(r.category||'').toLowerCase() !== 'transfer');
     if (!rows.length) {
-        budgetTbody.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-slate-500">Tidak ada data budget.</td></tr>`;
+        budgetTbody.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-slate-500">No budget data.</td></tr>`;
         return;
     }
     rows.forEach(r => {
@@ -358,7 +355,7 @@
     if (!goalsWrap) return;
     goalsWrap.innerHTML = '';
     if (!list || !list.length) {
-        goalsWrap.innerHTML = `<div class="text-sm text-slate-500 p-4 text-center">Belum ada goals.</div>`;
+        goalsWrap.innerHTML = `<div class="text-sm text-slate-500 p-4 text-center">No goals yet.</div>`;
         return;
     }
     (list || []).forEach(g => {
@@ -452,7 +449,7 @@
     budgetOverviewWrap.innerHTML = '';
     const rows = (_budgetCache || []).filter(r => r.budget > 0 && String(r.category||'').toLowerCase() !== 'transfer');
     if (!rows.length){
-      budgetOverviewWrap.innerHTML = `<div class="text-sm text-slate-500">Tidak ada data budget bulan ini.</div>`;
+      budgetOverviewWrap.innerHTML = `<div class="text-sm text-slate-500">No budget data for this month.</div>`;
       return;
     }
     rows.sort((a,b)=> (a.remaining||0) - (b.remaining||0)).slice(0, 5).forEach(r => {
@@ -513,13 +510,13 @@
   function renderAccountForm() {
     renderIntoMaster(`
       <div id="accountForm" class="border rounded p-3">
-        <h4 class="font-medium mb-2">Tambah Expense Purpose</h4>
+        <h4 class="font-medium mb-2">Add Expense Purpose</h4>
         <form id="fAccount" class="grid grid-cols-2 gap-3">
           <label class="col-span-2">Expense Purpose
             <input name="expensePurpose" class="mt-1 w-full border rounded p-2" required />
           </label>
           <div class="col-span-2 flex justify-end">
-            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Simpan</button>
+            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Save</button>
           </div>
         </form>
         <p id="msgAccount" class="text-sm text-slate-600 mt-2"></p>
@@ -529,18 +526,18 @@
     f.onsubmit = (e) => {
       e.preventDefault();
       const payload = Object.fromEntries(new FormData(f).entries());
-      msg.textContent = 'Menyimpan...';
+      msg.textContent = 'Saving...';
       gs('createAccountPurpose', payload).then(() => {
-        msg.textContent = 'Tersimpan.'; f.reset();
+        msg.textContent = 'Saved.'; f.reset();
         gs('getDashboardData').then(d => { purposes = d.purposes; fillSelect(expSel, purposes); });
-        showToast('✅ Data diperbarui');
-      }).catch(err => { msg.textContent = err?.message || 'Gagal.'; });
+        showToast('✅ Data updated');
+      }).catch(err => { msg.textContent = err?.message || 'Failed.'; });
     };
   }
   function renderWalletForm() {
     renderIntoMaster(`
       <div id="walletForm" class="border rounded p-3">
-        <h4 class="font-medium mb-2">Tambah Wallet</h4>
+        <h4 class="font-medium mb-2">Add Wallet</h4>
         <form id="fWallet" class="grid grid-cols-3 gap-3">
           <label class="col-span-1">Wallet
             <input name="wallet" class="mt-1 w-full border rounded p-2" required />
@@ -557,7 +554,7 @@
             <select id="walletOwnerSel" name="walletOwner" class="mt-1 w-full border rounded p-2"></select>
           </label>
           <div class="col-span-3 flex justify-end">
-            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Simpan</button>
+            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Save</button>
           </div>
         </form>
         <p id="msgWallet" class="text-sm text-slate-600 mt-2"></p>
@@ -569,28 +566,28 @@
     f.onsubmit = (e) => {
       e.preventDefault();
       const payload = Object.fromEntries(new FormData(f).entries());
-      msg.textContent = 'Menyimpan...';
+      msg.textContent = 'Saving...';
       gs('createWallet', payload).then(() => {
-        msg.textContent = 'Tersimpan.'; f.reset();
+        msg.textContent = 'Saved.'; f.reset();
         gs('getDashboardData').then(d => {
             wallets = d.wallets;
             fillSelect(walSel, wallets.map(x=>x.Wallet));
             fillSelect(transferSel, wallets.map(x=>x.Wallet));
         });
-        showToast('✅ Data diperbarui');
-      }).catch(err => { msg.textContent = err?.message || 'Gagal.'; });
+        showToast('✅ Data updated');
+      }).catch(err => { msg.textContent = err?.message || 'Failed.'; });
     };
   }
   function renderCategoryForm() {
     renderIntoMaster(`
       <div id="categoryForm" class="border rounded p-3">
-        <h4 class="font-medium mb-2">Tambah Category/Subcategory</h4>
+        <h4 class="font-medium mb-2">Add Category/Subcategory</h4>
         <form id="fCategory" class="grid grid-cols-3 gap-3">
           <label class="col-span-1">Category
             <select id="categorySel" name="categorySel" class="mt-1 w-full border rounded p-2"></select>
           </label>
-          <label id="newCatWrap" class="col-span-1 hidden">Category (Baru)
-            <input id="newCategory" class="mt-1 w-full border rounded p-2" placeholder="Nama Category Baru" />
+          <label id="newCatWrap" class="col-span-1 hidden">Category (New)
+            <input id="newCategory" class="mt-1 w-full border rounded p-2" placeholder="New Category Name" />
           </label>
           <label class="col-span-1">Subcategory
             <input name="subcategory" class="mt-1 w-full border rounded p-2" required />
@@ -601,7 +598,7 @@
             </select>
           </label>
           <div class="col-span-3 flex justify-end">
-            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Simpan</button>
+            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Save</button>
           </div>
         </form>
         <p id="msgCategory" class="text-sm text-slate-600 mt-2"></p>
@@ -612,7 +609,7 @@
     const newCatInp  = document.getElementById('newCategory');
     const uniqueCats = Array.from(new Set((categories||[]).map(x => x.Category).filter(Boolean))).sort();
     if (catSel){
-      const NEW_VAL = '— Tambah Baru… —';
+      const NEW_VAL = '— Add New… —';
       fillSelect(catSel, [...uniqueCats, NEW_VAL]);
       catSel.addEventListener('change', () => {
         const isNew = (catSel.value === NEW_VAL);
@@ -625,32 +622,32 @@
     const f = document.getElementById('fCategory'), msg = document.getElementById('msgCategory');
     f.onsubmit = (e) => {
       e.preventDefault();
-      const isNew = (catSel.value === '— Tambah Baru… —');
+      const isNew = (catSel.value === '— Add New… —');
       const category = isNew ? (newCatInp.value || '').trim() : catSel.value;
-      if (!category) { msg.textContent = 'Category baru belum diisi.'; return; }
+      if (!category) { msg.textContent = 'New category name is required.'; return; }
       const fd = new FormData(f);
       const payload = {
         category,
         subcategory: (fd.get('subcategory') || '').trim(),
         transactionType: fd.get('transactionType') || 'Expense',
       };
-      if (!payload.subcategory) { msg.textContent = 'Subcategory wajib diisi.'; return; }
-      msg.textContent = 'Menyimpan...';
+      if (!payload.subcategory) { msg.textContent = 'Subcategory is required.'; return; }
+      msg.textContent = 'Saving...';
       gs('createCategory', payload).then(() => {
-        msg.textContent = 'Tersimpan.'; f.reset(); newCatInp.value = '';
+        msg.textContent = 'Saved.'; f.reset(); newCatInp.value = '';
         gs('getDashboardData').then(d => {
             categories = d.categories;
             const subOptions = categories.map(x => x.Subcategory).filter(s => s && s !== 'Transfer-In');
             fillSelect(subSel, subOptions);
         });
-        showToast('✅ Data diperbarui');
-      }).catch(err => { msg.textContent = err?.message || 'Gagal.'; });
+        showToast('✅ Data updated');
+      }).catch(err => { msg.textContent = err?.message || 'Failed.'; });
     };
   }
   function renderGoalsForm() {
     renderIntoMaster(`
       <div id="goalsForm" class="border rounded p-3">
-        <h4 class="font-medium mb-2">Tambah Goal</h4>
+        <h4 class="font-medium mb-2">Add Goal</h4>
         <form id="fGoal" class="grid grid-cols-3 gap-3">
           <label class="col-span-1">Goal
             <input name="goal" class="mt-1 w-full border rounded p-2" required />
@@ -666,9 +663,9 @@
           </label>
           <div class="col-span-3 flex justify-end items-center gap-3">
             <button id="btnPlanGoal" type="button" class="px-3 py-2 text-sm bg-sky-600 text-white rounded hover:bg-sky-700 transition flex items-center disabled:opacity-50">
-              <span class="mr-2">✨</span> Buat Rencana
+              <span class="mr-2">✨</span> Create Plan
             </button>
-            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Simpan</button>
+            <button class="px-3 py-2 bg-emerald-600 text-white rounded">Save</button>
           </div>
         </form>
         <div id="goalPlanResult" class="mt-4 text-sm"></div>
@@ -685,15 +682,15 @@
       const goalName = f.elements.goal.value;
       const nominalNeeded = f.elements.nominalNeeded.value;
       if (!goalName || !nominalNeeded) {
-        showToast('Isi nama Goal dan Nominal Needed terlebih dahulu.', true);
+        showToast('Please fill in Goal name and Nominal Needed first.', true);
         return;
       }
       btnPlanGoal.disabled = true;
-      goalPlanResult.innerHTML = '<p class="text-slate-500">Membuat rencana dengan AI...</p>';
+      goalPlanResult.innerHTML = '<p class="text-slate-500">Creating plan with AI...</p>';
       gs('getGoalSavingsPlan', { goalName, nominalNeeded }).then(htmlResult => {
         goalPlanResult.innerHTML = `<div class="p-3 bg-sky-50 rounded-lg border border-sky-200">${htmlResult}</div>`;
       }).catch(err => {
-        goalPlanResult.innerHTML = `<p class="text-rose-600">Gagal membuat rencana: ${err.message}</p>`;
+        goalPlanResult.innerHTML = `<p class="text-rose-600">Failed to create plan: ${err.message}</p>`;
       }).finally(() => {
         btnPlanGoal.disabled = false;
       });
@@ -702,13 +699,13 @@
     f.onsubmit = (e) => {
       e.preventDefault();
       const payload = Object.fromEntries(new FormData(f).entries());
-      msg.textContent = 'Menyimpan...';
+      msg.textContent = 'Saving...';
       gs('createGoal', payload).then(() => {
-        msg.textContent = 'Tersimpan.'; f.reset(); goalPlanResult.innerHTML = '';
+        msg.textContent = 'Saved.'; f.reset(); goalPlanResult.innerHTML = '';
         const walletPayload = { wallet: payload.goal, walletType: 'Other Asset', walletOwner: payload.goalOwner || '' };
         gs('createWallet', walletPayload);
-        showToast('✅ Goal & Wallet baru tersimpan');
-      }).catch(err => { msg.textContent = err?.message || 'Gagal.'; });
+        showToast('✅ New Goal & Wallet saved');
+      }).catch(err => { msg.textContent = err?.message || 'Failed.'; });
     };
   }
 
