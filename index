@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SatukasSatukas</title>
+  <title>SKSK Finance</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link id="manifestLink" rel="manifest">
 </head>
@@ -11,12 +11,14 @@
 
   <!-- Header / Nav -->
   <header class="sticky top-0 z-20 bg-gradient-to-r from-emerald-500 to-sky-500 text-white shadow-md">
-    <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-xl font-semibold tracking-wide">SatukasSatukas</h1>
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <h1 class="text-xl font-semibold tracking-wide">SKSK Finance</h1>
       <nav class="flex items-center gap-2">
+        <!-- NEW: Input Tab -->
+        <button id="btnTabInput" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Input</button>
         <button id="btnTabDashboard" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Dashboard</button>
-        <button id="btnTabHistory"   class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Riwayat</button>
-        <button id="btnTabReport"    class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Laporan</button>
+        <button id="btnTabHistory"   class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">History</button>
+        <button id="btnTabReport"    class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Reports</button>
         <button id="btnSetupOpen"    class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Setup</button>
         <button id="btnRefreshHeader" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition">Refresh</button>
         <button id="btnInstall" class="text-sm px-3 py-1 rounded bg-white/20 hover:bg-white/30 transition hidden">Install</button>
@@ -25,150 +27,84 @@
   </header>
 
   <div id="loadingIndicator" class="fixed top-16 left-1/2 -translate-x-1/2 z-30 bg-sky-600 text-white text-sm px-4 py-1 rounded-full shadow-lg hidden">
-    Memuat...
+    Loading...
   </div>
 
+  <main class="max-w-4xl mx-auto px-4 py-6">
 
-  <main class="max-w-2xl mx-auto px-4 py-6">
+    <!-- NEW: INPUT VIEW -->
+    <section id="inputView" class="space-y-6 hidden">
+      <section class="bg-white border max-w-2xl mx-auto rounded-lg shadow p-4">
+        <h2 class="text-lg font-semibold mb-3">Add New Transaction</h2>
+        <form id="txForm" class="grid grid-cols-2 gap-4">
+          <div class="col-span-1"><label for="date" class="block text-sm font-medium text-slate-700">Date</label><input id="date" type="date" class="mt-1 w-full border rounded p-2" required></div>
+          <div class="col-span-1"><label for="subcategory" class="block text-sm font-medium text-slate-700">Subcategory</label><select id="subcategory" class="mt-1 w-full border rounded p-2" required></select></div>
+          <div class="col-span-1"><label for="wallet" class="block text-sm font-medium text-slate-700">Wallet</label><select id="wallet" class="mt-1 w-full border rounded p-2" required></select></div>
+          <div class="col-span-1"><label for="amount" class="block text-sm font-medium text-slate-700">Amount</label><input id="amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border rounded p-2" required></div>
+          <div id="transferWrap" class="col-span-2 hidden"><label for="transferTo" class="block text-sm font-medium text-slate-700">Transfer To</label><select id="transferTo" class="mt-1 w-full border rounded p-2"></select></div>
+          <div class="col-span-2"><label for="expensePurpose" class="block text-sm font-medium text-slate-700">Expense For</label><select id="expensePurpose" class="mt-1 w-full border rounded p-2"></select></div>
+          <div class="col-span-2"><label for="note" class="block text-sm font-medium text-slate-700">Note</label><input id="note" type="text" list="noteOptions" class="mt-1 w-full border rounded p-2"><datalist id="noteOptions"></datalist></div>
+          <div class="col-span-2"><label for="description" class="block text-sm font-medium text-slate-700">Description (Optional)</label><input id="description" type="text" class="mt-1 w-full border rounded p-2"></div>
+          <div class="col-span-2 flex justify-end"><button id="btnSubmit" type="submit" class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50">Save</button></div>
+        </form>
+      </section>
+    </section>
 
     <!-- DASHBOARD -->
     <section id="dashboardView" class="space-y-6">
-      <!-- Quick Add -->
-      <section class="bg-white border rounded-lg shadow p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">Tambah Transaksi Baru</h2>
-        </div>
-        <form id="txForm" class="grid grid-cols-2 gap-4">
-          <div class="col-span-1">
-            <label for="date" class="block text-sm font-medium text-slate-700">Tanggal</label>
-            <input id="date" type="date" class="mt-1 w-full border rounded p-2" required>
-          </div>
-          <div class="col-span-1">
-            <label for="subcategory" class="block text-sm font-medium text-slate-700">Subcategory</label>
-            <select id="subcategory" class="mt-1 w-full border rounded p-2" required></select>
-          </div>
-          <div class="col-span-1">
-            <label for="wallet" class="block text-sm font-medium text-slate-700">Wallet</label>
-            <select id="wallet" class="mt-1 w-full border rounded p-2" required></select>
-          </div>
-          <div class="col-span-1">
-            <label for="amount" class="block text-sm font-medium text-slate-700">Amount</label>
-            <input id="amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border rounded p-2" required>
-          </div>
-
-          <div id="transferWrap" class="col-span-2 hidden">
-            <label for="transferTo" class="block text-sm font-medium text-slate-700">Transfer Ke</label>
-            <select id="transferTo" class="mt-1 w-full border rounded p-2"></select>
-          </div>
-
-          <div class="col-span-2">
-            <label for="expensePurpose" class="block text-sm font-medium text-slate-700">Expense For</label>
-            <select id="expensePurpose" class="mt-1 w-full border rounded p-2"></select>
-          </div>
-          <div class="col-span-2">
-            <label for="note" class="block text-sm font-medium text-slate-700">Note</label>
-            <input id="note" type="text" list="noteOptions" class="mt-1 w-full border rounded p-2">
-            <datalist id="noteOptions"></datalist>
-          </div>
-          <div class="col-span-2">
-            <label for="description" class="block text-sm font-medium text-slate-700">Description (Opsional)</label>
-            <input id="description" type="text" class="mt-1 w-full border rounded p-2">
-          </div>
-
-          <div class="col-span-2 flex justify-end">
-            <button id="btnSubmit" type="submit" class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50">Simpan</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="bg-white border rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">
-          Net Worth <span id="netWorthInline" class="ml-2"></span>
-        </h2>
-        <div id="walletBalancesWrap" class="space-y-4 mt-2"></div>
-      </section>
-
-      <section class="bg-white border rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Budget Overview (Bulan Berjalan)</h2>
-        <div id="budgetOverviewWrap" class="space-y-2"></div>
-      </section>
+      <section class="bg-white border rounded-lg shadow p-4"><h2 class="text-lg font-semibold mb-3">Net Worth <span id="netWorthInline" class="ml-2"></span></h2><div id="walletBalancesWrap" class="space-y-4 mt-2"></div></section>
+      <section class="bg-white border rounded-lg shadow p-4"><h2 class="text-lg font-semibold mb-3">Budget Overview (Current Month)</h2><div id="budgetOverviewWrap" class="space-y-2"></div></section>
     </section>
 
     <!-- HISTORY -->
     <section id="historyView" class="space-y-6 hidden">
       <section class="bg-white border rounded-lg shadow p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">Riwayat</h2>
-          <input id="search" placeholder="Cari transaksi..." class="border rounded p-2 text-sm">
+        <div class="flex items-center justify-between mb-4 border-b pb-3">
+          <h2 class="text-lg font-semibold">Transaction History</h2>
+          <!-- NEW: History Filters -->
+          <div class="flex items-center gap-2">
+            <select id="historyYearFilter" class="border rounded p-2 text-sm"></select>
+            <select id="historyMonthFilter" class="border rounded p-2 text-sm"></select>
+            <input id="search" placeholder="Search notes..." class="border rounded p-2 text-sm">
+          </div>
         </div>
         <div id="txList" class="space-y-2"></div>
-        <div class="text-center mt-4">
-            <button id="btnLoadMore" class="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 rounded hidden">Muat Lagi</button>
-        </div>
+        <div class="text-center mt-4"><button id="btnLoadMore" class="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 rounded hidden">Load More</button></div>
       </section>
     </section>
 
     <!-- REPORTS -->
     <section id="reportView" class="space-y-6 hidden">
-      <!-- GEMINI FEATURE: Financial Analysis -->
       <section class="bg-white border rounded-lg shadow p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-lg font-semibold">Analisis Keuangan Cerdas</h2>
-          <button id="btnAnalyzeReport" class="px-3 py-2 text-sm bg-sky-600 text-white rounded hover:bg-sky-700 transition flex items-center disabled:opacity-50">
-            <span class="mr-2">✨</span> Analisis
-          </button>
+        <div class="flex items-center justify-between mb-3"><h2 class="text-lg font-semibold">Smart Financial Analysis</h2><button id="btnAnalyzeReport" class="px-3 py-2 text-sm bg-sky-600 text-white rounded hover:bg-sky-700 transition flex items-center disabled:opacity-50"><span class="mr-2">✨</span> Analyze</button></div>
+        <div id="reportAnalysisResult" class="mt-4 text-sm p-3 bg-sky-50 rounded-lg border border-sky-200 min-h-[5rem]"><p class="text-slate-500">Click the "Analyze" button to get AI insights on your finances for the selected period.</p></div>
+      </section>
+      <section class="bg-white border rounded-lg shadow p-4">
+        <div class="flex items-center justify-between mb-4 border-b pb-3">
+            <h2 class="text-lg font-semibold">Budget Summary</h2>
+            <!-- NEW: Report Filters -->
+            <div class="flex items-center gap-2">
+                <select id="reportYearFilter" class="border rounded p-2 text-sm"></select>
+                <select id="reportMonthFilter" class="border rounded p-2 text-sm"></select>
+            </div>
         </div>
-        <div id="reportAnalysisResult" class="mt-4 text-sm p-3 bg-sky-50 rounded-lg border border-sky-200 min-h-[5rem]">
-          <p class="text-slate-500">Klik tombol "Analisis" untuk mendapatkan wawasan dari AI tentang kondisi keuangan Anda bulan ini.</p>
-        </div>
+        <table class="w-full text-sm border-collapse"><thead class="bg-slate-50"><tr><th class="p-2 text-left font-semibold w-[30%] border-b">Category</th><th class="p-2 text-left font-semibold w-[30%] border-b">Subcategory</th><th class="p-2 text-right font-semibold w-[20%] border-b">Spent</th><th class="p-2 text-right font-semibold w-[20%] border-b">Remaining</th></tr></thead><tbody id="budgetTbody"></tbody></table>
       </section>
-
-      <section class="bg-white border rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Budget Summary</h2>
-        <table class="w-full text-sm border-collapse">
-          <thead class="bg-slate-50">
-            <tr>
-              <th class="p-2 text-left font-semibold w-[30%] border-b">Category</th>
-              <th class="p-2 text-left font-semibold w-[30%] border-b">Subcategory</th>
-              <th class="p-2 text-right font-semibold w-[20%] border-b">Spent</th>
-              <th class="p-2 text-right font-semibold w-[20%] border-b">Remaining</th>
-            </tr>
-          </thead>
-          <tbody id="budgetTbody"></tbody>
-        </table>
-      </section>
-
-      <section class="bg-white border rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Goals Progress</h2>
-        <div id="goalsWrap" class="space-y-3"></div>
-      </section>
+      <section class="bg-white border rounded-lg shadow p-4"><h2 class="text-lg font-semibold mb-3">Goals Progress</h2><div id="goalsWrap" class="space-y-3"></div></section>
     </section>
 
     <!-- SETUP -->
     <section id="setupView" class="hidden">
       <div class="bg-white border rounded-lg shadow p-6 space-y-6">
-        <h2 class="text-xl font-semibold border-b pb-2">Setup Data</h2>
-
-        <div>
-          <h3 class="font-medium mb-2">Database Creation</h3>
-          <button id="btnCreateNew" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition">
-            Buat Database Baru
-          </button>
-          <p id="setupMsg" class="text-sm text-slate-500 mt-2 min-h-[1.25rem]"></p>
+        <h2 class="text-xl font-semibold border-b pb-2">Setup</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div><h3 class="font-medium mb-2">Database Connection</h3><button id="btnCreateNew" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition">Create New Database</button><p id="setupMsg" class="text-sm text-slate-500 mt-2 min-h-[1.25rem]"></p>
+            <!-- NEW: Open Sheet Button -->
+            <a id="btnOpenSheet" href="#" target="_blank" class="mt-2 px-4 py-2 rounded bg-gray-600 text-white hover:bg-gray-700 transition inline-block hidden">Open Sheet</a>
+            </div>
+            <div><h3 class="font-medium mb-2">Master Data</h3><div class="grid grid-cols-2 gap-3"><button id="btnOpenWallet" class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Wallet</button><button id="btnOpenCategory" class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Category</button><button id="btnOpenAccount" class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Account</button><button id="btnOpenGoals" class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Goals</button></div><p class="text-xs text-slate-500 mt-2">Forms to add new master data will appear below.</p></div>
         </div>
-
-        <div>
-          <h3 class="font-medium mb-2">Master Data</h3>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <button id="btnOpenWallet"   class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Wallet</button>
-            <button id="btnOpenCategory" class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Category</button>
-            <button id="btnOpenAccount"  class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Account</button>
-            <button id="btnOpenGoals"    class="px-3 py-2 rounded text-white bg-emerald-600 hover:bg-emerald-700">Goals</button>
-          </div>
-          <p class="text-xs text-slate-500 mt-2">Form untuk menambah data akan muncul di bawah ini.</p>
-
-          <div id="masterFormWrap" class="mt-4 space-y-4"></div>
-        </div>
+        <div id="masterFormWrap" class="mt-4 space-y-4"></div>
       </div>
     </section>
 
@@ -177,26 +113,15 @@
   <?!= HtmlService.createHtmlOutputFromFile('app').getContent(); ?>
 
   <script>
+    // PWA Setup Script (no changes needed here)
     window.addEventListener('load', function() {
-      // Determine the base URL from the browser's location.
       const SCRIPT_URL = window.location.href.split('?')[0];
-      const MANIFEST_VERSION = '20250826';
-      const SW_VERSION = '20250826';
-
-      if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) {
-          console.error('FATAL: Could not determine a valid script URL from window.location.href.');
-          return;
-      }
-
-      document.getElementById('manifestLink').href = SCRIPT_URL + '?asset=manifest&v=' + MANIFEST_VERSION;
-
+      if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) { console.error('FATAL: Could not determine a valid script URL.'); return; }
+      document.getElementById('manifestLink').href = SCRIPT_URL + '?asset=manifest&v=20250827';
       if ('serviceWorker' in navigator) {
-        const swUrl = SCRIPT_URL + '?asset=sw&v=' + SW_VERSION;
-        navigator.serviceWorker.register(swUrl)
-          .then(registration => console.log('Service Worker registered successfully:', registration.scope))
-          .catch(err => console.error('Service Worker registration failed:', err, 'URL:', swUrl));
+        const swUrl = SCRIPT_URL + '?asset=sw&v=20250827';
+        navigator.serviceWorker.register(swUrl).then(reg => console.log('SW registered.')).catch(err => console.error('SW registration failed:', err));
       }
-
       let deferredPrompt;
       const btnInstall = document.getElementById('btnInstall');
       window.addEventListener('beforeinstallprompt', (e) => {
@@ -204,7 +129,6 @@
         deferredPrompt = e;
         if (btnInstall) btnInstall.classList.remove('hidden');
       });
-
       btnInstall?.addEventListener('click', async () => {
         if (!deferredPrompt) return;
         deferredPrompt.prompt();
