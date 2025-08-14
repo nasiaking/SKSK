@@ -1,7 +1,7 @@
 // ===== SKSK v1.0.2 Backend.gs (Final & Truly Complete) =====
 const TEMPLATE_ID = '1FgXGKYyiw5ZL1Dft4XyaQ2TEfTH22orDUFTXu5n5gTw';
 const USER_PROP_KEY = 'sheetId';
-const GEMINI_API_KEY = "AIzaSyDgxghKaLvL4IKyAqjak9up2OPlkXoPJqw"; // Make sure your API Key is pasted here
+const GEMINI_API_KEY = "API"; // Make sure your API Key is pasted here
 const MASTER_CACHE_EXPIRATION_SECONDS = 21600;
 const CACHE_EXPIRATION_SECONDS = 300;
 
